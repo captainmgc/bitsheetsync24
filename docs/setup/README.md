@@ -1,229 +1,116 @@
-# Bitrix24 Sync Service (BitsheetSync24)# BitSheet24 - Python + PostgreSQL Projesi
+# BitSheet24 - Python + PostgreSQL Projesi
 
+## 📋 Proje Yapısı
 
-
-Bitrix24 CRM verilerini PostgreSQL veritabanına otomatik senkronize eden systemd daemon servisi.## 📋 Proje Yapısı
-
-
-
-## 🚀 Hızlı Başlangıç```
-
+```
 bitsheet24/
-
-```bash├── venv/                    # Python sanal ortamı
-
-# Servisi kur├── src/                     # Ana kaynak kodu
-
-sudo ./install_service.sh│   ├── __init__.py
-
+├── venv/                    # Python sanal ortamı
+├── src/                     # Ana kaynak kodu
+│   ├── __init__.py
 │   ├── config.py           # Ayar dosyası
-
-# Durumu kontrol et│   ├── models.py           # Veritabanı modelleri
-
-sudo systemctl status bitrix-sync│   └── main.py             # Ana uygulama
-
+│   ├── models.py           # Veritabanı modelleri
+│   └── main.py             # Ana uygulama
 ├── tests/                  # Test dosyaları
-
-# Logları izle├── .env                    # Ortam değişkenleri (GIT'te yok)
-
-sudo journalctl -u bitrix-sync -f├── requirements.txt        # Python bağımlılıkları
-
-```├── test_db.py             # PostgreSQL bağlantı testi
-
+├── .env                    # Ortam değişkenleri (GIT'te yok)
+├── requirements.txt        # Python bağımlılıkları
+├── test_db.py             # PostgreSQL bağlantı testi
 ├── test_sqlalchemy.py     # SQLAlchemy testi
+# Bitrix24 Sync Service
 
-## 📚 Dokümantasyon# Bitrix24 Sync Service
+Bitrix24 CRM verilerini PostgreSQL veritabanına sürekli olarak senkronize eden daemon servisi.
 
+## 🚀 Özellikler
 
-
-### Kurulum & KullanımBitrix24 CRM verilerini PostgreSQL veritabanına sürekli olarak senkronize eden daemon servisi.
-
-- [📖 Kurulum Kılavuzu](docs/setup/README.md) - Detaylı kurulum adımları
-
-- [🚀 Hızlı Başlangıç](docs/setup/QUICKSTART.md) - Temel komutlar ve kullanım## 🚀 Özellikler
-
-
-
-### Analiz & Raporlama- ✅ Sürekli çalışan systemd servisi
-
-- [📊 Veri Analiz Fırsatları](docs/analysis/BITRIX_DATA_ANALYSIS.md) - Eklenebilecek tablolar ve analiz örnekleri- ✅ Artırımlı senkronizasyon (sadece değişen kayıtlar)
-
-- [👥 Personel Performans Analizi](docs/analysis/PERSONEL_ANALIZI.md) - Çalışan performans metrikleri- ✅ Otomatik yeniden başlatma (çökme durumunda)
-
+- ✅ Sürekli çalışan systemd servisi
+- ✅ Artırımlı senkronizasyon (sadece değişen kayıtlar)
+- ✅ Otomatik yeniden başlatma (çökme durumunda)
 - ✅ Detaylı loglama
+- ✅ Graceful shutdown (sinyal kontrolü)
+- ✅ Kaynak sınırlamaları (Memory, CPU)
 
-### API Dokümantasyonu- ✅ Graceful shutdown (sinyal kontrolü)
+## 📦 Desteklenen Tablolar
 
-- [🔌 Bitrix24 API Referansı](docs/api/) - API endpoint'leri ve kullanım- ✅ Kaynak sınırlamaları (Memory, CPU)
+| Tablo | Senkronizasyon | Filtre Alanları |
+|-------|----------------|-----------------|
+| leads | Artırımlı | DATE_CREATE, DATE_MODIFY |
+| contacts | Artırımlı | DATE_CREATE, DATE_MODIFY |
+| deals | Artırımlı | DATE_CREATE, DATE_MODIFY |
+| activities | Artırımlı | CREATED, LAST_UPDATED |
+| tasks | Full sync | (artırımlı geliştiriliyor) |
 
+## 🔧 Kurulum
 
+### 1. Bağımlılıkları Yükle
 
-## 📊 Mevcut Tablolar## 📦 Desteklenen Tablolar
+```bash
+# PostgreSQL kurulu olmalı
+sudo apt-get install postgresql postgresql-contrib
 
-
-
-| Tablo | Kayıt Sayısı | Sync Tipi | Durum || Tablo | Senkronizasyon | Filtre Alanları |
-
-|-------|--------------|-----------|-------||-------|----------------|-----------------|
-
-| leads | 7,685 | Incremental | ✅ Aktif || leads | Artırımlı | DATE_CREATE, DATE_MODIFY |
-
-| contacts | 29,430 | Incremental | ✅ Aktif || contacts | Artırımlı | DATE_CREATE, DATE_MODIFY |
-
-| deals | 28,781 | Incremental | ✅ Aktif || deals | Artırımlı | DATE_CREATE, DATE_MODIFY |
-
-| activities | 165,950 | Incremental | ✅ Aktif || activities | Artırımlı | CREATED, LAST_UPDATED |
-
-| tasks | 43,431 | Full Sync | ⏳ Geliştirilecek || tasks | Full sync | (artırımlı geliştiriliyor) |
-
-| users | 50 | Full Sync | ✅ Aktif |
-
-| departments | 14 | Full Sync | ✅ Aktif |## 🔧 Kurulum
-
-
-
-## 🎯 Özellikler### 1. Bağımlılıkları Yükle
-
-
-
-- ✅ Otomatik artırımlı senkronizasyon (her 10 dakika)```bash
-
-- ✅ Systemd daemon olarak çalışma# PostgreSQL kurulu olmalı
-
-- ✅ Otomatik yeniden başlatma (hata durumunda)sudo apt-get install postgresql postgresql-contrib
-
-- ✅ JSONB tabanlı esnek veri modeli
-
-- ✅ Kaynak limitleri (Memory, CPU)# Python bağımlılıkları
-
-- ✅ Detaylı loglamacd /home/captain/bitsheet24
-
+# Python bağımlılıkları
+cd /home/captain/bitsheet24
 python -m venv venv
-
-## 🔧 Temel Komutlarsource venv/bin/activate
-
+source venv/bin/activate
 pip install -r requirements.txt
+```
 
-```bash```
+### 2. Veritabanı Konfigürasyonu
 
-# Servis yönetimi
-
-sudo systemctl status bitrix-sync### 2. Veritabanı Konfigürasyonu
-
-sudo systemctl stop bitrix-sync
-
-sudo systemctl start bitrix-sync`.env` dosyasını düzenle:
-
-sudo systemctl restart bitrix-sync```bash
-
+`.env` dosyasını düzenle:
+```bash
 BITRIX_WEBHOOK_URL=https://your-domain.bitrix24.com/rest/1/your-webhook-key/
-
-# Manuel syncDATABASE_URL=postgresql://bitsheet:bitsheet123@localhost:5432/bitsheet_db
-
-python sync_bitrix.py all --incremental```
-
-python sync_bitrix.py leads --incremental
+DATABASE_URL=postgresql://bitsheet:bitsheet123@localhost:5432/bitsheet_db
+```
 
 ### 3. İlk Full Sync
 
-# Loglar
-
-sudo journalctl -u bitrix-sync -f```bash
-
-tail -f logs/sync_daemon.log# Tüm tabloları ilk kez senkronize et
-
-```python sync_bitrix.py all
-
-
-
-## 📁 Proje Yapısı# Veya teker teker
-
-python sync_bitrix.py leads
-
-```python sync_bitrix.py contacts
-
-bitsheet24/python sync_bitrix.py deals
-
-├── docs/                       # Dokümantasyonpython sync_bitrix.py activities
-
-│   ├── setup/                  # Kurulum kılavuzları```
-
-│   ├── analysis/               # Analiz rehberleri
-
-│   └── api/                    # API dokümantasyonu### 4. Servisi Kur
-
-├── src/                        # Kaynak kod
-
-│   ├── bitrix/                 # Bitrix24 entegrasyonu```bash
-
-│   │   ├── client.py           # API istemcisi# Servisi systemd'ye kur ve başlat
-
-│   │   └── ingestors/          # Tablo senkronizasyon modüllerisudo ./install_service.sh
-
-│   ├── storage.py              # Veritabanı işlemleri```
-
-│   └── config.py               # Konfigürasyon
-
-├── logs/                       # Log dosyaları## 📊 Kullanım
-
-├── bitrix_sync_daemon.py       # Ana daemon
-
-├── sync_bitrix.py              # Manuel sync CLI### Servis Komutları
-
-├── install_service.sh          # Kurulum scripti
-
-└── uninstall_service.sh        # Kaldırma scripti```bash
-
-```# Servis durumunu kontrol et
-
-sudo systemctl status bitrix-sync
-
-## 🔐 Konfigürasyon
-
-# Logları takip et
-
-`.env` dosyası:sudo journalctl -u bitrix-sync -f
-
 ```bash
+# Tüm tabloları ilk kez senkronize et
+python sync_bitrix.py all
 
-BITRIX_WEBHOOK_URL=https://your-domain.bitrix24.com/rest/1/your-key/# Servisi durdur
-
-DATABASE_URL=postgresql://bitsheet:bitsheet123@localhost:5432/bitsheet_dbsudo systemctl stop bitrix-sync
-
+# Veya teker teker
+python sync_bitrix.py leads
+python sync_bitrix.py contacts
+python sync_bitrix.py deals
+python sync_bitrix.py activities
 ```
 
+### 4. Servisi Kur
+
+```bash
+# Servisi systemd'ye kur ve başlat
+sudo ./install_service.sh
+```
+
+## 📊 Kullanım
+
+### Servis Komutları
+
+```bash
+# Servis durumunu kontrol et
+sudo systemctl status bitrix-sync
+
+# Logları takip et
+sudo journalctl -u bitrix-sync -f
+
+# Servisi durdur
+sudo systemctl stop bitrix-sync
+
 # Servisi başlat
+sudo systemctl start bitrix-sync
 
-## 📈 Performanssudo systemctl start bitrix-sync
-
-
-
-- **Artırımlı Sync**: ~1-5 saniye# Servisi yeniden başlat
-
-- **Full Sync**: Entity başına 2-8 dakikasudo systemctl restart bitrix-sync
-
-- **Kaynak Kullanımı**: <1GB RAM, <50% CPU
+# Servisi yeniden başlat
+sudo systemctl restart bitrix-sync
 
 # Servisi devre dışı bırak (otomatik başlatma)
+sudo systemctl disable bitrix-sync
 
-## 🆘 Desteksudo systemctl disable bitrix-sync
+# Servisi kaldır
+sudo ./uninstall_service.sh
+```
 
+### Manuel Sync
 
-
-Sorunlar için:# Servisi kaldır
-
-1. [Hızlı Başlangıç Kılavuzu](docs/setup/QUICKSTART.md)sudo ./uninstall_service.sh
-
-2. [GitHub Issues](https://github.com/captainmgc/bitsheetsync24/issues)```
-
-
-
-## 📝 Lisans### Manuel Sync
-
-
-
-Şirket içi kullanım için geliştirilmiştir.```bash
-
+```bash
 # Artırımlı sync (son sync'den bu yana değişenler)
 python sync_bitrix.py all --incremental
 python sync_bitrix.py leads --incremental
