@@ -85,10 +85,11 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Detailed health check"""
+    from datetime import datetime
     return {
         "status": "healthy",
         "database": "connected",
-        "timestamp": structlog.processors.TimeStamper(fmt="iso")
+        "timestamp": datetime.now().isoformat()
     }
 
 

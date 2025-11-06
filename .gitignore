@@ -44,9 +44,10 @@ wheels/
 *.sqlite
 *.sqlite3
 
-# Logs
+# Logs and PIDs
 *.log
 logs/
+.pids/
 
 # Test coverage
 .coverage
