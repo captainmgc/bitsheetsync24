@@ -4,10 +4,25 @@ CLI to sync Bitrix24 entities into PostgreSQL (bitrix schema)
 """
 import argparse
 import os
+import logging
+import sys
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('sync_bitrix.log')
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 from src.bitrix.client import BitrixClient
 from src.bitrix.ingestors import leads as leads_ing
 from src.bitrix.ingestors import contacts as contacts_ing
+from src.bitrix.ingestors import companies as companies_ing
 from src.bitrix.ingestors import deals as deals_ing
 from src.bitrix.ingestors import activities as activities_ing
 from src.bitrix.ingestors import tasks as tasks_ing
@@ -15,7 +30,7 @@ from src.bitrix.ingestors import task_comments as task_comments_ing
 from src.bitrix.ingestors import users as users_ing
 from src.bitrix.ingestors import departments as departments_ing
 
-ENTITIES = ["leads", "contacts", "deals", "activities", "tasks", "task_comments", "users", "departments"]
+ENTITIES = ["leads", "contacts", "companies", "deals", "activities", "tasks", "task_comments", "users", "departments"]
 
 def main():
     parser = argparse.ArgumentParser()
@@ -28,12 +43,15 @@ def main():
 
     def run(entity):
         mode = "incremental" if args.incremental else "full"
-        print(f"[{entity}] Starting {mode} sync...")
+        logger.info(f"[{entity}] Starting {mode} sync...")
+        print(f"[{entity}] Starting {mode} sync...")  # Keep print for CLI output
         
         if entity == "leads":
             c = leads_ing.incremental_sync(client, limit=args.limit) if args.incremental else leads_ing.full_sync(client, limit=args.limit)
         elif entity == "contacts":
             c = contacts_ing.incremental_sync(client, limit=args.limit) if args.incremental else contacts_ing.full_sync(client, limit=args.limit)
+        elif entity == "companies":
+            c = companies_ing.incremental_sync(client, limit=args.limit) if args.incremental else companies_ing.full_sync(client, limit=args.limit)
         elif entity == "deals":
             c = deals_ing.incremental_sync(client, limit=args.limit) if args.incremental else deals_ing.full_sync(client, limit=args.limit)
         elif entity == "activities":
@@ -48,11 +66,12 @@ def main():
             c = departments_ing.full_sync(client, limit=args.limit)
         else:
             c = 0
+        logger.info(f"[{entity}] Synced {c} records (mode={mode}, total_hint={getattr(client, 'last_total', None)})")
         print(f"[{entity}] Synced {c} records (mode={mode}, total_hint={getattr(client, 'last_total', None)})")
 
     if args.entity == "all":
         # Only sync incremental-capable entities if --incremental
-        entities_to_sync = ["leads", "contacts", "deals", "activities", "tasks"] if args.incremental else ENTITIES
+        entities_to_sync = ["leads", "contacts", "companies", "deals", "activities", "tasks"] if args.incremental else ENTITIES
         for e in entities_to_sync:
             run(e)
     else:

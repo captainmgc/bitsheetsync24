@@ -1,8 +1,34 @@
-# Bitrix24 Sync Service (BitsheetSync24)# BitSheet24 - Python + PostgreSQL Projesi
+# BitSheet24 - Bitrix24 → Google Sheets Export System
 
+**Sürekli çalışan artırımlı senkronizasyon ile Bitrix24 CRM verilerinizi PostgreSQL'de saklayın ve Google Sheets'e aktarın.**
 
+## 🎯 Ana Özellikler
 
-Bitrix24 CRM verilerini PostgreSQL veritabanına otomatik senkronize eden systemd daemon servisi.## 📋 Proje Yapısı
+- ✅ **Sürekli Artırımlı Sync**: Her 5 dakikada bir sadece değişen kayıtlar çekilir
+- ✅ **Tüm Tablolar Desteklenir**: Leads, Contacts, Companies, Deals, Activities, Tasks, **Task Comments** dahil
+- ✅ **Arka Plan Daemon**: Kesintisiz çalışır, sistem yeniden başladığında otomatik başlar
+- ✅ **FastAPI Backend**: Modern async API (port 8001)
+- ✅ **Next.js 16 Frontend**: Export Wizard UI (port 3000)
+- ✅ **Otomatik İlişki Tespiti**: Foreign key'leri otomatik bulur ve ilişkili verileri dahil eder
+- ✅ **Türkçe Destek**: Tarih formatları (DD/MM/YYYY), kolon isimleri
+
+## � Veritabanı Durumu (Anlık)
+
+| Tablo | Kayıt Sayısı | Son Güncelleme |
+|-------|--------------|----------------|
+| **activities** | 166,567 | Her 5 dakika ⏱️ |
+| **task_comments** | 113,628 | Her 5 dakika ⏱️ |
+| **tasks** | 43,722 | Her 5 dakika ⏱️ |
+| **contacts** | 29,477 | Her 5 dakika ⏱️ |
+| **deals** | 28,844 | Her 5 dakika ⏱️ |
+| **leads** | 7,715 | Her 5 dakika ⏱️ |
+| **companies** | 51 | Her 5 dakika ⏱️ |
+| **users** | 50 | Her 50 dakika 🔁 |
+| **departments** | 14 | Her 50 dakika 🔁 |
+
+**Toplam**: ~390,000+ kayıt (260 MB veri)
+
+## 🚀 Hızlı Başlangıç
 
 
 
