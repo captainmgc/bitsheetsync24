@@ -264,7 +264,7 @@ UPSERT_SQL = {
         duration_plan, duration_fact, time_estimate, time_spent_in_logs,
         parent_id, group_id, tags,
         allow_change_deadline, allow_time_tracking,
-        comments_count, service_comments_count,
+        comments_count, new_comments_count,
         original_data, updated_at, fetched_at, source_hash
     )
     VALUES (
@@ -276,7 +276,7 @@ UPSERT_SQL = {
         :duration_plan, :duration_fact, :time_estimate, :time_spent_in_logs,
         :parent_id, :group_id, :tags,
         :allow_change_deadline, :allow_time_tracking,
-        :comments_count, :service_comments_count,
+        :comments_count, :new_comments_count,
         CAST(:original_data AS JSONB), :updated_at, now(), :source_hash
     )
     ON CONFLICT (bitrix_id) DO UPDATE SET
@@ -303,7 +303,7 @@ UPSERT_SQL = {
         allow_change_deadline = EXCLUDED.allow_change_deadline,
         allow_time_tracking = EXCLUDED.allow_time_tracking,
         comments_count = EXCLUDED.comments_count,
-        service_comments_count = EXCLUDED.service_comments_count,
+        new_comments_count = EXCLUDED.new_comments_count,
         original_data = EXCLUDED.original_data,
         updated_at = EXCLUDED.updated_at,
         fetched_at = now(),
@@ -624,7 +624,7 @@ def _extract_task_params(item: Dict[str, Any], u_at: Optional[datetime], s_hash:
         "allow_change_deadline": item.get("ALLOW_CHANGE_DEADLINE") == "Y",
         "allow_time_tracking": item.get("ALLOW_TIME_TRACKING") == "Y",
         "comments_count": int(item.get("COMMENTS_COUNT", 0)) if item.get("COMMENTS_COUNT") else 0,
-        "service_comments_count": int(item.get("SERVICE_COMMENTS_COUNT", 0)) if item.get("SERVICE_COMMENTS_COUNT") else 0,
+        "new_comments_count": int(item.get("NEW_COMMENTS_COUNT", 0)) if item.get("NEW_COMMENTS_COUNT") else 0,
         "original_data": json_lib.dumps(item, ensure_ascii=False),
         "updated_at": u_at,
         "source_hash": s_hash,

@@ -56,3 +56,9 @@ htmlcov/
 # Dependency lock files
 Pipfile.lock
 poetry.lock
+
+# Database Backups
+backups/
+*.sql.gz
+*.sql.gz.md5
+pre_restore_*.sql.gz
