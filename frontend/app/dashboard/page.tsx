@@ -30,7 +30,7 @@ export default function DashboardPage() {
   const { data: session } = useSession()
 
   useEffect(() => {
-    fetch('http://localhost:8001/api/tables/')
+    fetch('http://localhost:8000/api/tables/')
       .then(res => res.json())
       .then(data => {
         setStats(data)

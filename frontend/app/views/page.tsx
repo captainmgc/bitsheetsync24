@@ -85,7 +85,7 @@ export default function ViewManagementPage() {
   const fetchAllViews = async () => {
     setLoading(true)
     try {
-      const response = await fetch('http://localhost:8001/api/views/')
+      const response = await fetch('http://localhost:8000/api/views/')
       const result = await response.json()
       setViews(result.views || [])
     } catch (error) {
@@ -105,7 +105,7 @@ export default function ViewManagementPage() {
         }
       })
 
-      const response = await fetch(`http://localhost:8001/api/views/${formData.table_name}`, {
+      const response = await fetch(`http://localhost:8000/api/views/${formData.table_name}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -133,7 +133,7 @@ export default function ViewManagementPage() {
       if (!editingView) return
 
       const response = await fetch(
-        `http://localhost:8001/api/views/${editingView.table_name}/${viewId}`,
+        `http://localhost:8000/api/views/${editingView.table_name}/${viewId}`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -162,7 +162,7 @@ export default function ViewManagementPage() {
 
     try {
       const response = await fetch(
-        `http://localhost:8001/api/views/${tableName}/${viewId}`,
+        `http://localhost:8000/api/views/${tableName}/${viewId}`,
         { method: 'DELETE' }
       )
 

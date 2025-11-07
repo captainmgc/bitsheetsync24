@@ -61,7 +61,7 @@ export default function ExportPage() {
 
   // Fetch table counts on mount
   useEffect(() => {
-    fetch('http://localhost:8001/api/tables/')
+    fetch('http://localhost:8000/api/tables/')
       .then(res => res.json())
       .then(data => {
         setSelectedTables(prev =>
@@ -79,7 +79,7 @@ export default function ExportPage() {
   // Fetch views when a table is selected
   const fetchViewsForTable = async (tableName: string) => {
     try {
-      const response = await fetch(`http://localhost:8001/api/views/${tableName}`)
+      const response = await fetch(`http://localhost:8000/api/views/${tableName}`)
       const result = await response.json()
       
       setSelectedTables(prev =>
@@ -169,7 +169,7 @@ export default function ExportPage() {
         table_views: Object.keys(tableViews).length > 0 ? tableViews : undefined
       }
 
-      const response = await fetch('http://localhost:8001/api/export/sheets', {
+      const response = await fetch('http://localhost:8000/api/export/sheets', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -13,7 +13,8 @@ import {
   ChevronRight,
   LogOut,
   Server,
-  Eye
+  Eye,
+  Zap
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -44,6 +45,11 @@ const navigationItems: NavItem[] = [
     name: 'View Yönetimi',
     href: '/views',
     icon: Eye,
+  },
+  {
+    name: 'Sheet Sync',
+    href: '/sheet-sync',
+    icon: Zap,
   },
 ]
 

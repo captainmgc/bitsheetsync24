@@ -9,7 +9,7 @@ import structlog
 
 from app.config import settings
 from app.database import init_db, close_db
-from app.api import exports, webhooks, tables, data, views
+from app.api import exports, webhooks, tables, data, views, sheet_sync
 
 # Configure structured logging
 structlog.configure(
@@ -58,10 +58,17 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure properly in production
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://10.196.81.139:3000",  # Local network
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    max_age=600,  # Cache preflight for 10 minutes
 )
 
 # Include routers
@@ -70,6 +77,7 @@ app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(tables.router, prefix="/api/tables", tags=["Tables"])
 app.include_router(data.router, prefix="/api/data", tags=["Data"])
 app.include_router(views.router, prefix="/api/views", tags=["Views"])
+app.include_router(sheet_sync.router)  # Includes its own prefix /api/v1/sheet-sync
 
 
 @app.get("/")

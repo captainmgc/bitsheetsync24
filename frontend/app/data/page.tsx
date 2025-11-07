@@ -85,7 +85,7 @@ export default function DataViewerPage() {
 
   const fetchViews = async () => {
     try {
-      const response = await fetch(`http://localhost:8001/api/views/${selectedTable}`)
+      const response = await fetch(`http://localhost:8000/api/views/${selectedTable}`)
       if (response.ok) {
         const result = await response.json()
         setAvailableViews(result.views || [])
@@ -100,7 +100,7 @@ export default function DataViewerPage() {
     setLoading(true)
     try {
       const offset = pagination.pageIndex * pagination.pageSize
-      let url = `http://localhost:8001/api/data/${selectedTable}?limit=${pagination.pageSize}&offset=${offset}`
+      let url = `http://localhost:8000/api/data/${selectedTable}?limit=${pagination.pageSize}&offset=${offset}`
       
       // Add view_id if selected
       if (selectedView) {
