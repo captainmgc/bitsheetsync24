@@ -61,15 +61,15 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 cd "$FRONTEND_DIR"
 
 # Start frontend
-npm run dev > /tmp/frontend.log 2>&1 &
+ npm run dev -- -p 1600 > /tmp/frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo -e "${GREEN}✓ Frontend started (PID: $FRONTEND_PID)${NC}"
-echo -e "  📍 http://localhost:3000"
+ echo -e "  📍 http://localhost:1600"
 
 # Wait for frontend to be ready
 echo "  Waiting for frontend to start..."
 for i in {1..30}; do
-  if curl -s http://localhost:3000 > /dev/null 2>&1; then
+  if curl -s http://localhost:1600 > /dev/null 2>&1; then
     echo -e "  ${GREEN}✓ Frontend ready!${NC}"
     break
   fi
@@ -83,7 +83,7 @@ echo -e "${GREEN}✅ All Services Started Successfully!${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo -e "${YELLOW}📊 Service URLs:${NC}"
-echo -e "  🌐 Frontend:     ${GREEN}http://localhost:3000${NC}"
+ echo -e "  🌐 Frontend:     ${GREEN}http://localhost:1600${NC}"
 echo -e "  ⚙️  Backend:      ${GREEN}http://localhost:8000${NC}"
 echo -e "  📚 API Docs:     ${GREEN}http://localhost:8000/docs${NC}"
 echo ""

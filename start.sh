@@ -121,8 +121,9 @@ if [ ! -d "node_modules" ]; then
 fi
 
 # Frontend'i başlat
-echo -e "${GREEN}   Frontend başlatılıyor: http://localhost:3000${NC}"
-nohup npm run dev > "$FRONTEND_LOG" 2>&1 &
+echo -e "${GREEN}   Frontend başlatılıyor: http://localhost:1600${NC}"
+# Port 1600'de çalıştır (-p ile override)
+nohup npm run dev -- -p 1600 > "$FRONTEND_LOG" 2>&1 &
 FRONTEND_PID=$!
 echo $FRONTEND_PID > "$FRONTEND_PID_FILE"
 
@@ -144,7 +145,7 @@ echo -e "${GREEN}║          ✅ BitSheet24 Başarıyla Başlatıldı!         
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "${BLUE}🌐 Erişim Bilgileri:${NC}"
-echo -e "   ${GREEN}Frontend:${NC}  http://localhost:3000"
+echo -e "   ${GREEN}Frontend:${NC}  http://localhost:1600"
 echo -e "   ${GREEN}Backend:${NC}   http://localhost:8001"
 echo -e "   ${GREEN}API Docs:${NC}  http://localhost:8001/docs"
 echo ""

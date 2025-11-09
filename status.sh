@@ -62,14 +62,14 @@ fi
 echo ""
 
 # Frontend kontrolü
-echo -e "${BLUE}🎨 Frontend (Port 3000):${NC}"
+echo -e "${BLUE}🎨 Frontend (Port 1600):${NC}"
 if [ -f "$FRONTEND_PID_FILE" ]; then
     FRONTEND_PID=$(cat "$FRONTEND_PID_FILE")
     if kill -0 "$FRONTEND_PID" 2>/dev/null; then
         echo -e "${GREEN}   ✅ Çalışıyor (PID: $FRONTEND_PID)${NC}"
         
         # HTTP kontrolü
-        if curl -s http://localhost:3000 > /dev/null 2>&1; then
+    if curl -s http://localhost:1600 > /dev/null 2>&1; then
             echo -e "${GREEN}   ✅ HTTP yanıt veriyor${NC}"
         else
             echo -e "${YELLOW}   ⚠️  HTTP yanıt vermiyor (başlatılıyor olabilir)${NC}"
@@ -84,9 +84,9 @@ if [ -f "$FRONTEND_PID_FILE" ]; then
     fi
 else
     # Port kontrolü
-    FRONTEND_PORT_PID=$(lsof -ti:3000 2>/dev/null || true)
+    FRONTEND_PORT_PID=$(lsof -ti:1600 2>/dev/null || true)
     if [ ! -z "$FRONTEND_PORT_PID" ]; then
-        echo -e "${YELLOW}   ⚠️  Port 3000'de bir process var (PID: $FRONTEND_PORT_PID)${NC}"
+    echo -e "${YELLOW}   ⚠️  Port 1600'de bir process var (PID: $FRONTEND_PORT_PID)${NC}"
         echo -e "${YELLOW}   ⚠️  Ancak start.sh tarafından başlatılmamış${NC}"
         RUNNING_COUNT=$((RUNNING_COUNT + 1))
     else
@@ -137,7 +137,7 @@ fi
 
 echo ""
 echo -e "${BLUE}🌐 Erişim Linkleri:${NC}"
-echo -e "   Frontend:  ${GREEN}http://localhost:3000${NC}"
+echo -e "   Frontend:  ${GREEN}http://localhost:1600${NC}"
 echo -e "   Backend:   ${GREEN}http://localhost:8001${NC}"
 echo -e "   API Docs:  ${GREEN}http://localhost:8001/docs${NC}"
 echo ""

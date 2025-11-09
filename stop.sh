@@ -91,10 +91,10 @@ if [ ! -z "$BACKEND_PORT_PID" ]; then
     STOPPED=1
 fi
 
-# Port 3000 (Frontend)
-FRONTEND_PORT_PID=$(lsof -ti:3000 2>/dev/null || true)
+# Port 1600 (Frontend)
+FRONTEND_PORT_PID=$(lsof -ti:1600 2>/dev/null || true)
 if [ ! -z "$FRONTEND_PORT_PID" ]; then
-    echo -e "${YELLOW}   Port 3000'de process bulundu (PID: $FRONTEND_PORT_PID), durduruluyor...${NC}"
+    echo -e "${YELLOW}   Port 1600'de process bulundu (PID: $FRONTEND_PORT_PID), durduruluyor...${NC}"
     kill -9 "$FRONTEND_PORT_PID" 2>/dev/null || true
     STOPPED=1
 fi

@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # Google OAuth (User Authentication for Sheets)
     google_client_id: str = Field(default="")
     google_client_secret: str = Field(default="")
-    google_redirect_uri: str = Field(default="http://localhost:3000/sheet-sync/oauth/callback")
+    google_redirect_uri: str = Field(default="http://localhost:1600/sheet-sync/oauth/callback")
     
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/0")
@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8000)
     api_reload: bool = Field(default=True)
     log_level: str = Field(default="info")
-    frontend_url: str = Field(default="http://localhost:3000")
+    frontend_url: str = Field(default="http://localhost:1600")
     
     # Security
     secret_key: str = Field(default="dev-secret-key-change-in-production")

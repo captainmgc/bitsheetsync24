@@ -59,11 +59,11 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",
+        "http://localhost:1600",
         "http://localhost:3001",
-        "http://127.0.0.1:3000",
+        "http://127.0.0.1:1600",
         "http://127.0.0.1:3001",
-        "http://10.196.81.139:3000",  # Local network
+        "http://10.196.81.139:1600",  # Local network yeni port
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],

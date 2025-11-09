@@ -190,7 +190,7 @@ export default function DataViewerPage() {
     }))
 
     return [selectColumn, ...dataColumns]
-  }, [data])
+  }, [data, selectedTable, selectedView])
 
   // Create table instance
   const table = useReactTable({
@@ -295,6 +295,10 @@ export default function DataViewerPage() {
                     setSelectedTable(e.target.value)
                     setRowSelection({})
                     setPagination({ pageIndex: 0, pageSize: 20 })
+                    setSorting([])
+                    setColumnFilters([])
+                    setColumnVisibility({})
+                    setGlobalFilter('')
                   }}
                   className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
@@ -317,6 +321,10 @@ export default function DataViewerPage() {
                     onChange={(e) => {
                       setSelectedView(e.target.value ? parseInt(e.target.value) : null)
                       setPagination({ pageIndex: 0, pageSize: 20 })
+                      setRowSelection({})
+                      setSorting([])
+                      setColumnFilters([])
+                      setGlobalFilter('')
                     }}
                     className="w-full px-4 py-2 border border-purple-300 dark:border-purple-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                   >
@@ -378,7 +386,10 @@ export default function DataViewerPage() {
           </div>
 
           {/* Table */}
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div 
+            key={`${selectedTable}-${selectedView || 'all'}`}
+            className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden"
+          >
             {loading ? (
               <div className="flex items-center justify-center py-20">
                 <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
