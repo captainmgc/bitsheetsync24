@@ -163,7 +163,7 @@ echo ""
 echo -e "${BLUE}📊 Restore Sonrası Tablo İstatistikleri:${NC}"
 psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "
 SELECT 
-    schemaname || '.' || tablename as tablo,
+    schemaname || '.' || relname as tablo,
     n_live_tup as kayit_sayisi
 FROM pg_stat_user_tables 
 WHERE n_live_tup > 0

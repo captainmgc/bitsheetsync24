@@ -66,15 +66,18 @@ DB_SIZE=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -c "SE
 echo -e "${BLUE}📏 Veritabanı Boyutu: ${GREEN}${DB_SIZE}${NC}"
 echo ""
 
-# Tablo sayılarını göster
+# Tablo sayılarını göster (gerçek COUNT ile)
 echo -e "${BLUE}📋 Tablo İstatistikleri:${NC}"
 psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "
-SELECT 
-    schemaname || '.' || tablename as tablo,
-    n_live_tup as kayit_sayisi
-FROM pg_stat_user_tables 
-WHERE n_live_tup > 0
-ORDER BY n_live_tup DESC;
+SELECT 'bitrix.activities' as tablo, COUNT(*) as kayit_sayisi FROM bitrix.activities
+UNION ALL SELECT 'bitrix.tasks', COUNT(*) FROM bitrix.tasks
+UNION ALL SELECT 'bitrix.task_comments', COUNT(*) FROM bitrix.task_comments
+UNION ALL SELECT 'bitrix.contacts', COUNT(*) FROM bitrix.contacts
+UNION ALL SELECT 'bitrix.deals', COUNT(*) FROM bitrix.deals
+UNION ALL SELECT 'bitrix.leads', COUNT(*) FROM bitrix.leads
+UNION ALL SELECT 'bitrix.companies', COUNT(*) FROM bitrix.companies
+UNION ALL SELECT 'bitrix.users', COUNT(*) FROM bitrix.users
+ORDER BY kayit_sayisi DESC;
 "
 echo ""
 
