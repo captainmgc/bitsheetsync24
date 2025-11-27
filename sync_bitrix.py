@@ -29,8 +29,9 @@ from src.bitrix.ingestors import tasks as tasks_ing
 from src.bitrix.ingestors import task_comments as task_comments_ing
 from src.bitrix.ingestors import users as users_ing
 from src.bitrix.ingestors import departments as departments_ing
+from src.bitrix.ingestors import metadata as metadata_ing
 
-ENTITIES = ["leads", "contacts", "companies", "deals", "activities", "tasks", "task_comments", "users", "departments"]
+ENTITIES = ["metadata", "leads", "contacts", "companies", "deals", "activities", "tasks", "task_comments", "users", "departments"]
 
 def main():
     parser = argparse.ArgumentParser()
@@ -46,7 +47,9 @@ def main():
         logger.info(f"[{entity}] Starting {mode} sync...")
         print(f"[{entity}] Starting {mode} sync...")  # Keep print for CLI output
         
-        if entity == "leads":
+        if entity == "metadata":
+            c = metadata_ing.full_sync(client, limit=args.limit)
+        elif entity == "leads":
             c = leads_ing.incremental_sync(client, limit=args.limit) if args.incremental else leads_ing.full_sync(client, limit=args.limit)
         elif entity == "contacts":
             c = contacts_ing.incremental_sync(client, limit=args.limit) if args.incremental else contacts_ing.full_sync(client, limit=args.limit)
@@ -71,7 +74,8 @@ def main():
 
     if args.entity == "all":
         # Only sync incremental-capable entities if --incremental
-        entities_to_sync = ["leads", "contacts", "companies", "deals", "activities", "tasks"] if args.incremental else ENTITIES
+        # metadata is always full sync (quick operation)
+        entities_to_sync = ["metadata"] + (["leads", "contacts", "companies", "deals", "activities", "tasks"] if args.incremental else ENTITIES[1:])
         for e in entities_to_sync:
             run(e)
     else:

@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy sync daemon files
 COPY bitrix_sync_daemon.py .
+COPY sync_bitrix.py .
 COPY src/ ./src/
 COPY methods.json .
 

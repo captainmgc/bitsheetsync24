@@ -304,7 +304,18 @@ class ExportManager:
         result = await self.db.execute(text(query), params)
         rows = result.fetchall()
         
-        return [row[0] for row in rows]
+        records = [row[0] for row in rows]
+        
+        # Lookup çözümlemesi uygula - ID'leri isimlere çevir
+        from app.services.lookup_service import get_lookup_service
+        lookup_service = await get_lookup_service(self.db)
+        
+        resolved_records = []
+        for record in records:
+            resolved_record = await lookup_service.resolve_row(entity_name, record)
+            resolved_records.append(resolved_record)
+        
+        return resolved_records
     
     async def _fetch_related_data(
         self,

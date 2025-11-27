@@ -1,0 +1,26 @@
+# Override: System nginx kullanılacak, Docker nginx devre dışı
+# Portlar diğer sistemlerle çakışmayacak şekilde ayarlandı
+services:
+  nginx:
+    profiles:
+      - disabled
+
+  # PostgreSQL - 5433 portu (5432 hikcentral tarafından kullanılıyor)
+  postgres:
+    ports:
+      - "127.0.0.1:5433:5432"
+
+  # Redis - 6381 portu (6380 hikcentral tarafından kullanılıyor)  
+  redis:
+    ports:
+      - "127.0.0.1:6381:6379"
+
+  # Backend - 4001 portu (sadece localhost)
+  backend:
+    ports:
+      - "127.0.0.1:4001:8001"
+
+  # Frontend - 4000 portu (sadece localhost)
+  frontend:
+    ports:
+      - "127.0.0.1:4000:3000"

@@ -4,8 +4,8 @@ import GoogleProvider from "next-auth/providers/google"
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      clientId: process.env.GOOGLE_CLIENT_ID || "",
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
       authorization: {
         params: {
           scope: [
@@ -23,7 +23,7 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, account, user, profile }) {
+    async jwt({ token, account, user }) {
       // Initial sign in
       if (account && user) {
         return {
@@ -68,6 +68,20 @@ export const authOptions: NextAuthOptions = {
     error: '/auth/error',
   },
   secret: process.env.NEXTAUTH_SECRET,
+  debug: true, // Temporarily enabled for debugging
+  logger: {
+    error: (code, metadata) => {
+      console.error('[NextAuth Error]', code, metadata)
+    },
+    warn: (code) => {
+      console.warn('[NextAuth Warning]', code)
+    },
+    debug: (code, metadata) => {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[NextAuth Debug]', code, metadata)
+      }
+    },
+  },
 }
 
 async function refreshAccessToken(token: any) {

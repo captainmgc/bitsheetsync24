@@ -319,14 +319,23 @@ async def export_to_google_sheets(
                 logger.warning("no_data_for_table", table=table_name)
                 continue
             
+            # Lookup çözümlemesi uygula - ID'leri isimlere çevir
+            from ..services.lookup_service import get_lookup_service
+            lookup_service = await get_lookup_service(db)
+            
+            resolved_rows = []
+            for row in rows:
+                resolved_row = await lookup_service.resolve_row(table_name, dict(row))
+                resolved_rows.append(resolved_row)
+            
             # Convert to 2D array with headers
             headers = list(rows[0].keys())
             data = [headers]
             
-            for row in rows:
+            for row in resolved_rows:
                 data.append([
-                    str(value) if value is not None else ""
-                    for value in row.values()
+                    str(row.get(col, "")) if row.get(col) is not None else ""
+                    for col in headers
                 ])
             
             # Find sheet ID for this table

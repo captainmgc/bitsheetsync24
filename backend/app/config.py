@@ -2,9 +2,10 @@
 Application Configuration
 Uses Pydantic v2 Settings Management
 """
-from pydantic import Field, PostgresDsn
+from pydantic import Field, PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+import os
 
 
 class Settings(BaseSettings):
@@ -17,10 +18,23 @@ class Settings(BaseSettings):
         extra='ignore'
     )
     
-    # Database
-    database_url: PostgresDsn = Field(
-        default="postgresql+asyncpg://bitsheet:bitsheet123@localhost:5432/bitsheet_db"
-    )
+    # Database - individual components
+    db_host: str = Field(default="localhost", alias="DB_HOST")
+    db_port: int = Field(default=5432, alias="DB_PORT")
+    db_name: str = Field(default="bitsheet_db", alias="DB_NAME")
+    db_user: str = Field(default="bitsheet", alias="DB_USER")
+    db_password: str = Field(default="bitsheet123", alias="DB_PASSWORD")
+    
+    # Database URL (computed from components if not provided)
+    database_url: Optional[str] = Field(default=None)
+    
+    @property
+    def get_database_url(self) -> str:
+        """Get database URL, either from DATABASE_URL env or constructed from components"""
+        if self.database_url:
+            return str(self.database_url)
+        # Construct from individual components
+        return f"postgresql+asyncpg://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
     
     # Bitrix24
     bitrix24_webhook_url: str = Field(

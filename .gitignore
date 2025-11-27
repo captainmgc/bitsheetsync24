@@ -64,3 +64,8 @@ backups/
 *.sql.gz
 *.sql.gz.md5
 pre_restore_*.sql.gz
+
+# Hassas dosyalar
+.env.production
+nginx/ssl/
+*.pem

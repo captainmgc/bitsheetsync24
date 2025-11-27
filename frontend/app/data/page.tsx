@@ -31,6 +31,8 @@ import {
   CheckSquare,
   Square
 } from 'lucide-react'
+import { LookupBadge, DealStageBadge, DealCategoryBadge } from '@/components/ui/LookupBadge'
+import { useLookups, getLookupEntityType } from '@/hooks/useLookups'
 
 interface TableData {
   [key: string]: any
@@ -44,6 +46,7 @@ interface View {
 
 export default function DataViewerPage() {
   const { data: session } = useSession()
+  const { resolve, loading: lookupsLoading } = useLookups()
   const [selectedTable, setSelectedTable] = useState<string>('contacts')
   const [selectedView, setSelectedView] = useState<number | null>(null)
   const [availableViews, setAvailableViews] = useState<View[]>([])
@@ -182,9 +185,30 @@ export default function DataViewerPage() {
           </button>
         )
       },
-      cell: ({ getValue }) => {
+      cell: ({ getValue, row }) => {
         const value = getValue()
         if (value === null || value === undefined) return '-'
+        
+        // Lookup alanları için özel render
+        const lookupEntityType = getLookupEntityType(selectedTable, key)
+        
+        // Deal stage için özel handling
+        if (key.toUpperCase() === 'STAGE_ID' && selectedTable === 'deals') {
+          const categoryId = row.original['CATEGORY_ID']
+          return <DealStageBadge stageId={String(value)} categoryId={String(categoryId || '')} />
+        }
+        
+        // Deal category için özel handling
+        if (key.toUpperCase() === 'CATEGORY_ID' && selectedTable === 'deals') {
+          return <DealCategoryBadge categoryId={String(value)} />
+        }
+        
+        // Diğer lookup alanları
+        if (lookupEntityType) {
+          return <LookupBadge entityType={lookupEntityType} statusId={String(value)} />
+        }
+        
+        // Normal değerler
         if (typeof value === 'object') return JSON.stringify(value)
         return String(value)
       },

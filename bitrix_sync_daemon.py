@@ -20,6 +20,7 @@ from src.bitrix.ingestors import tasks as tasks_ing
 from src.bitrix.ingestors import task_comments as task_comments_ing
 from src.bitrix.ingestors import users as users_ing
 from src.bitrix.ingestors import departments as departments_ing
+from src.bitrix.ingestors import metadata as metadata_ing
 
 # Configuration
 SYNC_INTERVAL_SECONDS = 300  # 5 minutes (reduced for more frequent updates)
@@ -101,7 +102,7 @@ def main():
     logger.info("Bitrix24 Sync Daemon Starting")
     logger.info(f"Sync interval: {SYNC_INTERVAL_SECONDS} seconds ({SYNC_INTERVAL_SECONDS/60:.1f} minutes)")
     logger.info(f"Entities to sync: leads, contacts, companies, deals, activities, tasks, task_comments")
-    logger.info(f"Static entities: users, departments (synced every 10 cycles)")
+    logger.info(f"Static entities: metadata, users, departments (synced every 10 cycles)")
     logger.info(f"Log file: {LOG_FILE}")
     logger.info("=" * 80)
     
@@ -120,7 +121,17 @@ def main():
             
             # Sync static entities every 10th cycle
             if sync_count % 10 == 0:
-                logger.info("\n[STATIC ENTITIES] Syncing users and departments (every 10 cycles)...")
+                logger.info("\n[STATIC ENTITIES] Syncing users, departments and metadata (every 10 cycles)...")
+                
+                # Metadata (lookup values, deal categories)
+                try:
+                    metadata_count = metadata_ing.full_sync(client)
+                    results['metadata'] = metadata_count
+                    logger.info(f"[metadata] ✓ Synced {metadata_count} records")
+                except Exception as e:
+                    logger.error(f"[metadata] ✗ Error: {e}", exc_info=True)
+                    results['metadata'] = -1
+                
                 try:
                     user_count = users_ing.full_sync(client)
                     results['users'] = user_count
@@ -136,6 +147,17 @@ def main():
                 except Exception as e:
                     logger.error(f"[departments] ✗ Error: {e}", exc_info=True)
                     results['departments'] = -1
+            
+            # Sync metadata on first run
+            elif sync_count == 1:
+                logger.info("\n[INITIAL SYNC] Syncing metadata (lookup values)...")
+                try:
+                    metadata_count = metadata_ing.full_sync(client)
+                    results['metadata'] = metadata_count
+                    logger.info(f"[metadata] ✓ Synced {metadata_count} records")
+                except Exception as e:
+                    logger.error(f"[metadata] ✗ Error: {e}", exc_info=True)
+                    results['metadata'] = -1
             
             elapsed = time.time() - start_time
             

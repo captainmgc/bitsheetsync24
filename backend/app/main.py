@@ -9,7 +9,7 @@ import structlog
 
 from app.config import settings
 from app.database import init_db, close_db
-from app.api import exports, webhooks, tables, data, views, sheet_sync
+from app.api import exports, webhooks, tables, data, views, sheet_sync, lookups
 
 # Configure structured logging
 structlog.configure(
@@ -77,6 +77,7 @@ app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(tables.router, prefix="/api/tables", tags=["Tables"])
 app.include_router(data.router, prefix="/api/data", tags=["Data"])
 app.include_router(views.router, prefix="/api/views", tags=["Views"])
+app.include_router(lookups.router, prefix="/api/lookups", tags=["Lookups"])
 app.include_router(sheet_sync.router)  # Includes its own prefix /api/v1/sheet-sync
 
 

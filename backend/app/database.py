@@ -19,9 +19,9 @@ logger = structlog.get_logger()
 # SQLAlchemy Base
 Base = declarative_base()
 
-# Async Engine
+# Async Engine - use get_database_url property
 engine: AsyncEngine = create_async_engine(
-    str(settings.database_url),
+    settings.get_database_url,
     echo=settings.log_level == "debug",
     poolclass=NullPool,  # Let asyncpg handle pooling
     pool_pre_ping=True,

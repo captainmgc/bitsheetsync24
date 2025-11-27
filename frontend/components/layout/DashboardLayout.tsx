@@ -1,6 +1,7 @@
 'use client'
 
 import { ReactNode } from 'react'
+import Image from 'next/image'
 import { useSession } from 'next-auth/react'
 import Sidebar from '@/components/layout/Sidebar'
 
@@ -34,10 +35,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               {session?.user && (
                 <div className="flex items-center gap-3 px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-lg">
                   {session.user.image ? (
-                    <img 
+                    <Image 
                       src={session.user.image} 
                       alt={session.user.name || 'User'} 
-                      className="w-8 h-8 rounded-full"
+                      width={32}
+                      height={32}
+                      className="rounded-full"
+                      unoptimized
                     />
                   ) : (
                     <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-green-500 rounded-full flex items-center justify-center">
