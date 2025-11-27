@@ -14,8 +14,21 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Bitrix24 → Google Sheets Export",
-  description: "Bitrix24 verilerinizi otomatik olarak Google Sheets'e aktarın",
+  metadataBase: new URL('https://etablo.japonkonutlari.com'),
+  title: "BitSheet24 - Veri Senkronizasyonu | Japon Konutları",
+  description: "Bitrix24 verilerinizi otomatik olarak Google Sheets'e aktarın - Japon Konutları",
+  icons: {
+    icon: [
+      { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/favicon-16.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: '/logo-192.png',
+  },
+  openGraph: {
+    title: 'BitSheet24 - Veri Senkronizasyonu',
+    description: 'Bitrix24 verilerinizi otomatik olarak Google Sheets\'e aktarın',
+    images: ['/logo.png'],
+  },
 };
 
 export default function RootLayout({

@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -14,16 +15,18 @@ export default function Home() {
     <div className="container mx-auto px-4 py-12">
       {/* Header */}
       <div className="text-center mb-12">
-        <div className="flex items-center justify-center gap-3 mb-4">
-          <Database className="w-12 h-12 text-blue-600" />
-          <ArrowRight className="w-8 h-8 text-gray-400" />
-          <FileSpreadsheet className="w-12 h-12 text-green-600" />
+        <div className="flex items-center justify-center mb-6">
+          <Image
+            src="/logo.png"
+            alt="BitSheet24 Logo"
+            width={320}
+            height={320}
+            className="rounded-lg"
+            priority
+          />
         </div>
-        <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent mb-4">
-          Bitrix24 → Google Sheets
-        </h1>
         <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-          Verilerinizi otomatik ilişki tespiti ile kolayca Google Sheets'e aktarın
+          Verilerinizi otomatik ilişki tespiti ile kolayca Google Sheets&apos;e aktarın
         </p>
       </div>
 

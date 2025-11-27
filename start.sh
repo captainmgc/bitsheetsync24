@@ -2,6 +2,7 @@
 
 # BitSheet24 - Başlatma Scripti
 # Hem Backend hem de Frontend'i aynı anda başlatır
+# Port Yapılandırması: Frontend=4000, Backend=4001
 
 set -e
 
@@ -12,14 +13,24 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║              🚀 BitSheet24 Başlatılıyor...                  ║${NC}"
-echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
-echo ""
-
 # Script'in çalıştığı dizini bul
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
+
+# .env dosyasından portları yükle
+if [ -f ".env" ]; then
+    export $(cat .env | grep -v '^#' | grep -E '^(FRONTEND_PORT|BACKEND_PORT)=' | xargs)
+fi
+
+# Default portlar
+FRONTEND_PORT=${FRONTEND_PORT:-4000}
+BACKEND_PORT=${BACKEND_PORT:-4001}
+
+echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║              🚀 BitSheet24 Başlatılıyor...                  ║${NC}"
+echo -e "${BLUE}║         Frontend: ${FRONTEND_PORT} | Backend: ${BACKEND_PORT}                        ║${NC}"
+echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo ""
 
 # PID dosyalarının konumu
 PID_DIR="${SCRIPT_DIR}/.pids"
@@ -93,8 +104,8 @@ if ! python -c "import fastapi, uvicorn, sqlalchemy, asyncpg" 2>/dev/null; then
 fi
 
 # Backend'i başlat
-echo -e "${GREEN}   Backend başlatılıyor: http://localhost:8001${NC}"
-nohup uvicorn main:app --host 0.0.0.0 --port 8001 --reload > "$BACKEND_LOG" 2>&1 &
+echo -e "${GREEN}   Backend başlatılıyor: http://localhost:${BACKEND_PORT}${NC}"
+nohup uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT} --reload > "$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 echo $BACKEND_PID > "$BACKEND_PID_FILE"
 
@@ -121,9 +132,8 @@ if [ ! -d "node_modules" ]; then
 fi
 
 # Frontend'i başlat
-echo -e "${GREEN}   Frontend başlatılıyor: http://localhost:1600${NC}"
-# Port 1600'de çalıştır (-p ile override)
-nohup npm run dev -- -p 1600 > "$FRONTEND_LOG" 2>&1 &
+echo -e "${GREEN}   Frontend başlatılıyor: http://localhost:${FRONTEND_PORT}${NC}"
+nohup npm run dev -- -p ${FRONTEND_PORT} > "$FRONTEND_LOG" 2>&1 &
 FRONTEND_PID=$!
 echo $FRONTEND_PID > "$FRONTEND_PID_FILE"
 

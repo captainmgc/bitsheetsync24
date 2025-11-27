@@ -82,21 +82,25 @@ export default function GoogleSheetConnect() {
         {/* Info Box */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left">
           <h3 className="font-semibold text-blue-900 mb-2 text-sm">
-            What permissions are needed?
+            Hangi izinler gerekli?
           </h3>
           <ul className="text-sm text-blue-800 space-y-1">
-            <li>✓ Read access to your Google Sheets</li>
-            <li>✓ Monitor sheet changes in real-time</li>
-            <li>✓ Create webhooks for sync notifications</li>
+            <li>✓ Google Sheets dosyalarınıza okuma erişimi</li>
+            <li>✓ Sheet değişikliklerini gerçek zamanlı izleme</li>
+            <li>✓ Senkronizasyon bildirimleri için webhook oluşturma</li>
           </ul>
         </div>
 
         {/* Privacy Notice */}
         <p className="text-xs text-slate-500 mt-6">
-          Your data is secure. We only access sheets you authorize.
+          Verileriniz güvende. Yalnızca yetkilendirdiğiniz sheets&apos;lere erişiyoruz.
           <br />
-          <a href="#" className="text-blue-600 hover:underline">
-            Privacy Policy
+          <a href="/privacy-policy" className="text-blue-600 hover:underline">
+            Gizlilik Politikası
+          </a>
+          {" • "}
+          <a href="/terms" className="text-blue-600 hover:underline">
+            Kullanım Şartları
           </a>
         </p>
       </div>

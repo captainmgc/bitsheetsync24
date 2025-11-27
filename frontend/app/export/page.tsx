@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import ProtectedRoute from '@/components/auth/ProtectedRoute'
+import { apiUrl } from '@/lib/config'
 import { 
   Check, 
   ChevronRight, 
@@ -61,7 +62,7 @@ export default function ExportPage() {
 
   // Fetch table counts on mount
   useEffect(() => {
-    fetch('http://localhost:8000/api/tables/')
+    fetch(apiUrl('/api/tables/'))
       .then(res => res.json())
       .then(data => {
         setSelectedTables(prev =>
@@ -79,7 +80,7 @@ export default function ExportPage() {
   // Fetch views when a table is selected
   const fetchViewsForTable = async (tableName: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/views/${tableName}`)
+      const response = await fetch(apiUrl(`/api/views/${tableName}`))
       const result = await response.json()
       
       setSelectedTables(prev =>
@@ -169,7 +170,7 @@ export default function ExportPage() {
         table_views: Object.keys(tableViews).length > 0 ? tableViews : undefined
       }
 
-      const response = await fetch('http://localhost:8000/api/export/sheets', {
+      const response = await fetch(apiUrl('/api/export/sheets'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

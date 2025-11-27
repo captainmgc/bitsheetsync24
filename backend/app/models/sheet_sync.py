@@ -57,12 +57,19 @@ class SheetSyncConfig(Base):
     enabled = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # New columns for reverse sync
+    status_column_index = Column(Integer)
+    status_column_name = Column(String(100), default="Senkronizasyon")
+    script_id = Column(String(200))
+    script_installed_at = Column(DateTime)
 
     # Relationships
     user_token = relationship("UserSheetsToken", back_populates="sync_configs")
     field_mappings = relationship("FieldMapping", back_populates="config")
     sync_logs = relationship("ReverseSyncLog", back_populates="config")
     webhook_events = relationship("WebhookEvent", back_populates="config")
+    row_timestamps = relationship("SheetRowTimestamp", back_populates="config")
 
     __table_args__ = (
         Index("idx_sheet_sync_config_user", "user_id"),
@@ -82,9 +89,16 @@ class FieldMapping(Base):
     data_type = Column(String(50))  # "string", "number", "date", "boolean"
     is_updatable = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # New columns for reverse sync
+    is_readonly = Column(Boolean, default=False)
+    color_code = Column(String(7))  # Hex color code e.g. #E8F5E9
+    bitrix_field_type = Column(String(50))
+    bitrix_field_title = Column(String(255))
 
     # Relationships
     config = relationship("SheetSyncConfig", back_populates="field_mappings")
+
 
     __table_args__ = (
         Index("idx_field_mappings_config", "config_id"),
@@ -135,4 +149,69 @@ class WebhookEvent(Base):
 
     __table_args__ = (
         Index("idx_webhook_events_config", "config_id"),
+    )
+
+
+class SheetRowTimestamp(Base):
+    """Row-level timestamp tracking for conflict detection"""
+
+    __tablename__ = "sheet_row_timestamps"
+
+    id = Column(Integer, primary_key=True)
+    config_id = Column(Integer, ForeignKey("sheet_sync_config.id"), nullable=False)
+    sheet_row_number = Column(Integer, nullable=False)
+    entity_id = Column(String(100))
+    
+    # Timestamps
+    sheet_modified_at = Column(DateTime)
+    bitrix_modified_at = Column(DateTime)
+    last_sync_at = Column(DateTime)
+    
+    # Last values for conflict detection
+    last_sheet_values = Column(JSONB)
+    last_bitrix_values = Column(JSONB)
+    
+    # Status
+    sync_status = Column(String(20), default="synced")  # synced, pending, conflict, error
+    conflict_fields = Column(JSONB)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    config = relationship("SheetSyncConfig", back_populates="row_timestamps")
+
+    __table_args__ = (
+        Index("idx_row_timestamps_config", "config_id"),
+        Index("idx_row_timestamps_entity", "entity_id"),
+        Index("idx_row_timestamps_status", "sync_status"),
+    )
+
+
+class EntityFieldCache(Base):
+    """Cache for Bitrix24 entity field metadata"""
+
+    __tablename__ = "entity_field_cache"
+
+    id = Column(Integer, primary_key=True)
+    entity_type = Column(String(100), nullable=False)
+    field_name = Column(String(100), nullable=False)
+    
+    # Field metadata
+    field_title = Column(String(255))
+    field_type = Column(String(50))
+    is_editable = Column(Boolean, default=True)
+    is_required = Column(Boolean, default=False)
+    is_multiple = Column(Boolean, default=False)
+    
+    # Additional info
+    list_values = Column(JSONB)
+    settings = Column(JSONB)
+    
+    cached_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime)
+
+    __table_args__ = (
+        Index("idx_entity_field_cache_type", "entity_type"),
+        Index("idx_entity_field_cache_editable", "entity_type", "is_editable"),
     )

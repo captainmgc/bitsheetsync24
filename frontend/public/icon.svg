@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Primary gradient - Deep blue professional -->
+    <linearGradient id="primaryGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0066CC;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#004499;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Secondary gradient - Teal accent -->
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00B4D8;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0096C7;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Subtle shadow -->
+    <filter id="softShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000" flood-opacity="0.2"/>
+    </filter>
+  </defs>
+  
+  <!-- Clean white background -->
+  <rect x="0" y="0" width="512" height="512" fill="white"/>
+  
+  <!-- Main icon group - centered -->
+  <g transform="translate(256, 256)">
+    
+    <!-- Left element - stylized data/database icon -->
+    <g transform="translate(-120, 0)">
+      <!-- Rounded rectangle base -->
+      <rect x="-55" y="-75" width="110" height="150" rx="20" fill="url(#primaryGrad)" filter="url(#softShadow)"/>
+      
+      <!-- Abstract data lines -->
+      <rect x="-38" y="-52" width="55" height="10" rx="5" fill="white" opacity="0.9"/>
+      <rect x="-38" y="-28" width="70" height="10" rx="5" fill="white" opacity="0.7"/>
+      <rect x="-38" y="-4" width="50" height="10" rx="5" fill="white" opacity="0.9"/>
+      <rect x="-38" y="20" width="62" height="10" rx="5" fill="white" opacity="0.7"/>
+      <rect x="-38" y="44" width="45" height="10" rx="5" fill="white" opacity="0.9"/>
+    </g>
+    
+    <!-- Center - Connection/Sync arrows -->
+    <g transform="translate(0, 0)">
+      <!-- Forward arrow -->
+      <path d="M-32,-22 L25,-22 L25,-35 L52,-10 L25,15 L25,2 L-32,2 Z" fill="url(#accentGrad)" opacity="0.95"/>
+      <!-- Back arrow -->
+      <path d="M32,22 L-25,22 L-25,35 L-52,10 L-25,-15 L-25,-2 L32,-2 Z" fill="url(#primaryGrad)" opacity="0.75"/>
+    </g>
+    
+    <!-- Right element - stylized spreadsheet -->
+    <g transform="translate(120, 0)">
+      <!-- Rounded rectangle base -->
+      <rect x="-55" y="-75" width="110" height="150" rx="20" fill="url(#accentGrad)" filter="url(#softShadow)"/>
+      
+      <!-- Grid pattern -->
+      <line x1="-40" y1="-45" x2="40" y2="-45" stroke="white" stroke-width="2.5" opacity="0.4"/>
+      <line x1="-40" y1="-15" x2="40" y2="-15" stroke="white" stroke-width="2.5" opacity="0.4"/>
+      <line x1="-40" y1="15" x2="40" y2="15" stroke="white" stroke-width="2.5" opacity="0.4"/>
+      <line x1="-40" y1="45" x2="40" y2="45" stroke="white" stroke-width="2.5" opacity="0.4"/>
+      
+      <line x1="-12" y1="-62" x2="-12" y2="62" stroke="white" stroke-width="2.5" opacity="0.4"/>
+      <line x1="18" y1="-62" x2="18" y2="62" stroke="white" stroke-width="2.5" opacity="0.4"/>
+      
+      <!-- Highlight cells -->
+      <rect x="-38" y="-60" width="24" height="26" rx="4" fill="white" opacity="0.3"/>
+      <rect x="-10" y="-13" width="26" height="26" rx="4" fill="white" opacity="0.25"/>
+      <rect x="20" y="17" width="18" height="26" rx="4" fill="white" opacity="0.2"/>
+    </g>
+    
+  </g>
+  
+</svg>

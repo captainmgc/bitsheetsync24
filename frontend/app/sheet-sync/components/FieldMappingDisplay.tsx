@@ -12,7 +12,7 @@ interface FieldMappingDisplayProps {
   config: SyncConfig;
 }
 
-const BITRIX_FIELDS = {
+const BITRIX_FIELDS: Record<string, { value: string; label: string }[]> = {
   contacts: [
     { value: 'TITLE', label: 'Contact Name' },
     { value: 'EMAIL', label: 'Email' },
@@ -44,6 +44,25 @@ const BITRIX_FIELDS = {
     { value: 'DEADLINE', label: 'Deadline' },
     { value: 'RESPONSIBLE_ID', label: 'Assigned To' },
     { value: 'STATUS', label: 'Status' },
+  ],
+  leads: [
+    { value: 'TITLE', label: 'Lead Name' },
+    { value: 'NAME', label: 'First Name' },
+    { value: 'LAST_NAME', label: 'Last Name' },
+    { value: 'EMAIL', label: 'Email' },
+    { value: 'PHONE', label: 'Phone' },
+    { value: 'STATUS_ID', label: 'Status' },
+    { value: 'SOURCE_ID', label: 'Source' },
+    { value: 'COMMENTS', label: 'Comments' },
+  ],
+  activities: [
+    { value: 'SUBJECT', label: 'Subject' },
+    { value: 'DESCRIPTION', label: 'Description' },
+    { value: 'TYPE_ID', label: 'Type' },
+    { value: 'RESPONSIBLE_ID', label: 'Assigned To' },
+    { value: 'START_TIME', label: 'Start Time' },
+    { value: 'END_TIME', label: 'End Time' },
+    { value: 'COMPLETED', label: 'Completed' },
   ],
 };
 

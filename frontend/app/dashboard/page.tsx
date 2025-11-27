@@ -6,6 +6,7 @@ import Link from 'next/link'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import ProtectedRoute from '@/components/auth/ProtectedRoute'
 import MetricCard from '@/components/dashboard/MetricCard'
+import { apiUrl } from '@/lib/config'
 import { 
   Users, 
   Building2, 
@@ -30,7 +31,7 @@ export default function DashboardPage() {
   const { data: session } = useSession()
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/tables/')
+    fetch(apiUrl('/api/tables/'))
       .then(res => res.json())
       .then(data => {
         setStats(data)

@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     # Turkish Date Format
     turkish_date_format: str = Field(default="DD/MM/YYYY")
     turkish_time_format: str = Field(default="HH:mm:ss")
+    
+    # Reverse Sync Settings
+    reverse_sync_webhook_url: str = Field(
+        default="https://etablo.japonkonutlari.com/api/v1/sheet-sync/webhook"
+    )
+    reverse_sync_enabled: bool = Field(default=True)
 
 
 # Global settings instance

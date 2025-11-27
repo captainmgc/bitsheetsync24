@@ -13,6 +13,7 @@ import SheetSelector from './components/SheetSelector';
 import FieldMappingDisplay from './components/FieldMappingDisplay';
 import ColorSchemePicker from './components/ColorSchemePicker';
 import SyncHistory from './components/SyncHistory';
+import ReverseSyncSetup from './components/ReverseSyncSetup';
 
 export default function SheetSyncPage() {
   return (
@@ -26,7 +27,7 @@ export default function SheetSyncPage() {
 
 function SheetSyncContent() {
   const { data: session } = useSession();
-  const [activeTab, setActiveTab] = useState<'configs' | 'mappings' | 'colors' | 'history'>('configs');
+  const [activeTab, setActiveTab] = useState<'configs' | 'mappings' | 'colors' | 'reverse' | 'history'>('configs');
   
   const {
     userToken,
@@ -156,6 +157,7 @@ function SheetSyncContent() {
               {[
                 { id: 'configs', label: 'Yapılandırmalar', icon: '⚙️' },
                 { id: 'mappings', label: 'Alan Eşleştirme', icon: '🔗', disabled: !currentConfig},
+                { id: 'reverse', label: 'Çift Yönlü Senkron', icon: '🔄', disabled: !currentConfig},
                 { id: 'colors', label: 'Renkler', icon: '🎨', disabled: !currentConfig},
                 { id: 'history', label: 'Geçmiş', icon: '📜', disabled: !currentConfig},
               ].map((tab) => (
@@ -204,6 +206,14 @@ function SheetSyncContent() {
               <Card>
                 <CardContent className="pt-6">
                   <ColorSchemePicker config={currentConfig} />
+                </CardContent>
+              </Card>
+            )}
+
+            {activeTab === 'reverse' && currentConfig && (
+              <Card>
+                <CardContent className="pt-6">
+                  <ReverseSyncSetup config={currentConfig} onRefresh={loadSyncConfigs} />
                 </CardContent>
               </Card>
             )}

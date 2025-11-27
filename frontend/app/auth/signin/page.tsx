@@ -1,27 +1,27 @@
 'use client'
 
 import { signIn } from 'next-auth/react'
+import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { FileSpreadsheet, Database, ArrowRight } from 'lucide-react'
 
 export default function SignInPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800 p-4">
       <Card className="w-full max-w-md border-2 border-slate-700">
         <CardHeader className="text-center">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-green-500 rounded-xl flex items-center justify-center">
-              <FileSpreadsheet className="w-7 h-7 text-white" />
-            </div>
-            <ArrowRight className="w-6 h-6 text-slate-400" />
-            <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-blue-500 rounded-xl flex items-center justify-center">
-              <Database className="w-7 h-7 text-white" />
-            </div>
+          <div className="flex items-center justify-center mb-4">
+            <Image
+              src="/logo.png"
+              alt="BitSheet24 Logo"
+              width={280}
+              height={280}
+              className="rounded-lg"
+              priority
+            />
           </div>
-          <CardTitle className="text-2xl font-bold">BitSheet24</CardTitle>
-          <CardDescription>
-            Bitrix24 verilerinizi Google Sheets'e aktarın
+          <CardDescription className="text-base">
+            Bitrix24 verilerinizi Google Sheets&apos;e aktarın
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -61,7 +61,11 @@ export default function SignInPage() {
           </Button>
 
           <p className="text-xs text-center text-slate-500">
-            Giriş yaparak Google Sheets ve Drive erişimi için izin veriyorsunuz
+            Giriş yaparak{' '}
+            <a href="/terms" className="text-blue-500 hover:underline">Kullanım Şartları</a>
+            {' '}ve{' '}
+            <a href="/privacy-policy" className="text-blue-500 hover:underline">Gizlilik Politikası</a>
+            &apos;nı kabul etmiş olursunuz.
           </p>
         </CardContent>
       </Card>

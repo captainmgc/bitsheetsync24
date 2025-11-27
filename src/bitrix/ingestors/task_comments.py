@@ -26,14 +26,16 @@ def full_sync(client: BitrixClient, limit: Optional[int] = None, batch_size: int
     count = 0
     
     # Get task IDs that haven't been synced yet (not in task_comments table)
+    # Support both normalized (bitrix_id) and legacy (data->>'ID') tables
     engine = get_engine()
     with engine.connect() as conn:
         result = conn.execute(text("""
-            SELECT t.data->>'ID' as task_id 
+            SELECT t.bitrix_id as task_id 
             FROM bitrix.tasks t
-            WHERE NOT EXISTS (
+            WHERE t.bitrix_id IS NOT NULL
+            AND NOT EXISTS (
                 SELECT 1 FROM bitrix.task_comments tc 
-                WHERE tc.data->>'TASK_ID' = t.data->>'ID'
+                WHERE tc.task_id::text = t.bitrix_id
             )
             ORDER BY t.id
         """))
@@ -154,14 +156,15 @@ def incremental_sync(client: BitrixClient, since: Optional[datetime] = None, lim
     since_str = since.strftime('%Y-%m-%dT%H:%M:%S')
     logger.info(f"Incremental sync for task comments since {since_str}")
     
-    # Get tasks modified since last sync
+    # Get tasks modified since last sync (support normalized table with bitrix_id)
     engine = get_engine()
     with engine.connect() as conn:
         result = conn.execute(
             text("""
-                SELECT data->>'ID' as task_id 
+                SELECT bitrix_id as task_id 
                 FROM bitrix.tasks 
-                WHERE updated_at > :since 
+                WHERE bitrix_id IS NOT NULL
+                AND updated_at > :since 
                 ORDER BY id
             """),
             {"since": since}

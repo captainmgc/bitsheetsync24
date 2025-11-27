@@ -19,7 +19,10 @@ from app.services.google_sheets_auth import GoogleSheetsAuth
 from app.services.sheets_webhook import SheetsWebhookManager
 from app.services.change_processor import ChangeProcessor, SyncStatus
 from app.services.bitrix_updater import Bitrix24Updater
-from app.models.sheet_sync import SheetSyncConfig, FieldMapping, UserSheetsToken
+from app.services.bitrix_field_detector import Bitrix24FieldDetector, get_bitrix_field_detector
+from app.services.sheet_formatter import SheetFormatter
+from app.services.apps_script_installer import AppsScriptInstaller
+from app.models.sheet_sync import SheetSyncConfig, FieldMapping, UserSheetsToken, SheetRowTimestamp
 from app.config import settings
 
 import structlog
@@ -829,3 +832,871 @@ async def retry_failed_syncs(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+
+# ============================================================================
+# BITRIX24 FIELD DETECTION ENDPOINTS
+# ============================================================================
+
+
+@router.get("/bitrix-fields/{entity_type}")
+async def get_bitrix_fields(
+    entity_type: str,
+    editable_only: bool = Query(False),
+):
+    """
+    Get Bitrix24 fields for an entity type
+    
+    Path params:
+    - entity_type: leads, contacts, companies, deals, tasks, activities
+    
+    Query params:
+    - editable_only: If true, only return editable fields
+    
+    Response:
+    {
+        "entity_type": "deals",
+        "total_fields": 45,
+        "editable_count": 32,
+        "readonly_count": 13,
+        "fields": {...}
+    }
+    """
+    try:
+        detector = get_bitrix_field_detector()
+        
+        if editable_only:
+            fields = await detector.get_editable_fields(entity_type)
+        else:
+            fields = await detector.fetch_entity_fields(entity_type)
+        
+        editable_fields = await detector.get_editable_fields(entity_type)
+        readonly_fields = await detector.get_readonly_fields(entity_type)
+        
+        return {
+            "entity_type": entity_type,
+            "total_fields": len(fields),
+            "editable_count": len(editable_fields),
+            "readonly_count": len(readonly_fields),
+            "fields": fields,
+            "editable_fields": list(editable_fields.keys()),
+            "readonly_fields": list(readonly_fields.keys()),
+        }
+        
+    except Exception as e:
+        logger.error("get_bitrix_fields_failed", entity_type=entity_type, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.get("/bitrix-fields")
+async def get_all_bitrix_fields_summary():
+    """
+    Get summary of all entity fields
+    
+    Response:
+    {
+        "leads": {"total": 45, "editable": 32, "readonly": 13},
+        "contacts": {"total": 50, "editable": 40, "readonly": 10},
+        ...
+    }
+    """
+    try:
+        detector = get_bitrix_field_detector()
+        summary = await detector.get_all_entity_fields_summary()
+        
+        return {
+            "summary": summary,
+            "supported_entities": list(detector.ENTITY_FIELD_METHODS.keys()),
+        }
+        
+    except Exception as e:
+        logger.error("get_all_bitrix_fields_failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/classify-columns")
+async def classify_sheet_columns(
+    data: Dict[str, Any],
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Classify sheet columns as editable or read-only based on Bitrix24 field permissions
+    
+    Request body:
+    {
+        "entity_type": "deals",
+        "sheet_headers": ["ID", "TITLE", "OPPORTUNITY", "DATE_CREATE", ...],
+        "field_mappings": {"TITLE": "TITLE", "Ad": "NAME", ...}
+    }
+    
+    Response:
+    {
+        "editable_columns": [{"index": 1, "header": "TITLE", ...}],
+        "readonly_columns": [{"index": 0, "header": "ID", ...}]
+    }
+    """
+    try:
+        entity_type = data.get("entity_type")
+        sheet_headers = data.get("sheet_headers", [])
+        field_mappings = data.get("field_mappings", {})
+        
+        if not entity_type or not sheet_headers:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="entity_type and sheet_headers are required",
+            )
+        
+        detector = get_bitrix_field_detector()
+        editable_cols, readonly_cols = await detector.classify_sheet_columns(
+            entity_type,
+            sheet_headers,
+            field_mappings
+        )
+        
+        return {
+            "entity_type": entity_type,
+            "total_columns": len(sheet_headers),
+            "editable_columns": editable_cols,
+            "readonly_columns": readonly_cols,
+            "editable_count": len(editable_cols),
+            "readonly_count": len(readonly_cols),
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("classify_columns_failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+# ============================================================================
+# SHEET FORMATTING ENDPOINTS
+# ============================================================================
+
+
+@router.post("/format-sheet/{config_id}")
+async def format_sheet_for_sync(
+    config_id: int,
+    user_id: str = Query(...),
+    add_status_column: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Format Google Sheet with colors and sync status column
+    - Editable columns: Light green header
+    - Read-only columns: Light red header
+    - Adds "Senkronizasyon" status column
+    
+    Query params:
+    - user_id: User ID
+    - add_status_column: Whether to add status column (default: true)
+    
+    Response:
+    {
+        "success": true,
+        "status_column_index": 15,
+        "editable_columns": 12,
+        "readonly_columns": 3
+    }
+    """
+    try:
+        # Get config
+        stmt = select(SheetSyncConfig).where(SheetSyncConfig.id == config_id)
+        result = await db.execute(stmt)
+        config = result.scalars().first()
+        
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Config not found",
+            )
+        
+        if config.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied",
+            )
+        
+        # Get user token
+        oauth_auth = GoogleSheetsAuth()
+        token = await oauth_auth.get_valid_token(db, user_id)
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User tokens not found or expired",
+            )
+        
+        # Get field mappings for this config
+        stmt = select(FieldMapping).where(FieldMapping.config_id == config_id)
+        result = await db.execute(stmt)
+        mappings = result.scalars().all()
+        
+        # Classify columns
+        editable_indices = []
+        readonly_indices = []
+        
+        for mapping in mappings:
+            if mapping.is_updatable and not mapping.is_readonly:
+                editable_indices.append(mapping.sheet_column_index)
+            else:
+                readonly_indices.append(mapping.sheet_column_index)
+        
+        # If no classification yet, use Bitrix24 field detector
+        if not editable_indices and not readonly_indices:
+            detector = get_bitrix_field_detector()
+            headers = [m.sheet_column_name for m in mappings]
+            field_map = {m.sheet_column_name: m.bitrix_field for m in mappings}
+            
+            editable_cols, readonly_cols = await detector.classify_sheet_columns(
+                config.entity_type,
+                headers,
+                field_map
+            )
+            
+            editable_indices = [c["index"] for c in editable_cols]
+            readonly_indices = [c["index"] for c in readonly_cols]
+            
+            # Update field mappings with readonly info
+            for mapping in mappings:
+                is_readonly = mapping.sheet_column_index in readonly_indices
+                mapping.is_readonly = is_readonly
+                mapping.is_updatable = not is_readonly
+                mapping.color_code = "#FFEBEE" if is_readonly else "#E8F5E9"
+            
+            await db.commit()
+        
+        # Format the sheet
+        formatter = SheetFormatter(token)
+        format_result = await formatter.format_sheet_for_reverse_sync(
+            spreadsheet_id=config.sheet_id,
+            gid=config.sheet_gid,
+            editable_column_indices=editable_indices,
+            readonly_column_indices=readonly_indices,
+            add_status_column=add_status_column,
+        )
+        
+        # Update config with status column index
+        if format_result.get("success") and "status_column_index" in format_result:
+            config.status_column_index = format_result["status_column_index"]
+            await db.commit()
+        
+        logger.info(
+            "sheet_formatted",
+            config_id=config_id,
+            editable=len(editable_indices),
+            readonly=len(readonly_indices)
+        )
+        
+        return format_result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("format_sheet_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/update-row-status/{config_id}")
+async def update_row_sync_status(
+    config_id: int,
+    user_id: str = Query(...),
+    row_number: int = Query(...),
+    status: str = Query(...),
+    error_message: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Update sync status for a specific row in the sheet
+    
+    Query params:
+    - row_number: Row number (1-indexed)
+    - status: synced, pending, error, conflict
+    - error_message: Optional error message for error status
+    """
+    try:
+        # Get config
+        stmt = select(SheetSyncConfig).where(SheetSyncConfig.id == config_id)
+        result = await db.execute(stmt)
+        config = result.scalars().first()
+        
+        if not config or config.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied",
+            )
+        
+        if not config.status_column_index:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Status column not configured. Format the sheet first.",
+            )
+        
+        # Get user token
+        oauth_auth = GoogleSheetsAuth()
+        token = await oauth_auth.get_valid_token(db, user_id)
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User tokens not found or expired",
+            )
+        
+        # Update status in sheet
+        formatter = SheetFormatter(token)
+        update_result = await formatter.update_sync_status(
+            spreadsheet_id=config.sheet_id,
+            sheet_name=config.sheet_name or "Sheet1",
+            row_number=row_number,
+            status_column_index=config.status_column_index,
+            status=status,
+            error_message=error_message,
+        )
+        
+        return update_result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("update_row_status_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+# ============================================================================
+# APPS SCRIPT INSTALLATION ENDPOINTS
+# ============================================================================
+
+
+@router.post("/install-webhook/{config_id}")
+async def install_apps_script_webhook(
+    config_id: int,
+    user_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Automatically install Google Apps Script webhook to user's sheet
+    
+    This creates an Apps Script project bound to the spreadsheet,
+    adds webhook code, and sets up the onEdit trigger.
+    
+    Response:
+    {
+        "success": true,
+        "script_id": "abc123...",
+        "webhook_url": "https://etablo.japonkonutlari.com/api/v1/sheet-sync/webhook",
+        "steps": [...]
+    }
+    """
+    try:
+        # Get config
+        stmt = select(SheetSyncConfig).where(SheetSyncConfig.id == config_id)
+        result = await db.execute(stmt)
+        config = result.scalars().first()
+        
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Config not found",
+            )
+        
+        if config.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied",
+            )
+        
+        # Get user token
+        oauth_auth = GoogleSheetsAuth()
+        token = await oauth_auth.get_valid_token(db, user_id)
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User tokens not found or expired",
+            )
+        
+        # Check if already installed
+        if config.script_id:
+            return {
+                "success": True,
+                "already_installed": True,
+                "script_id": config.script_id,
+                "message": "Webhook already installed",
+            }
+        
+        # Install webhook
+        installer = AppsScriptInstaller(token)
+        install_result = await installer.install_webhook(
+            spreadsheet_id=config.sheet_id,
+            config_id=str(config_id),
+            user_id=user_id,
+            entity_type=config.entity_type,
+        )
+        
+        # Update config with script info
+        if install_result.get("success"):
+            from datetime import datetime
+            config.script_id = install_result.get("script_id")
+            config.script_installed_at = datetime.utcnow()
+            config.webhook_registered = True
+            await db.commit()
+        
+        logger.info(
+            "webhook_installed",
+            config_id=config_id,
+            script_id=install_result.get("script_id")
+        )
+        
+        return install_result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("install_webhook_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.delete("/uninstall-webhook/{config_id}")
+async def uninstall_apps_script_webhook(
+    config_id: int,
+    user_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Remove Apps Script webhook from user's sheet
+    """
+    try:
+        # Get config
+        stmt = select(SheetSyncConfig).where(SheetSyncConfig.id == config_id)
+        result = await db.execute(stmt)
+        config = result.scalars().first()
+        
+        if not config or config.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied",
+            )
+        
+        if not config.script_id:
+            return {
+                "success": True,
+                "message": "No webhook installed",
+            }
+        
+        # Get user token
+        oauth_auth = GoogleSheetsAuth()
+        token = await oauth_auth.get_valid_token(db, user_id)
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User tokens not found or expired",
+            )
+        
+        # Uninstall webhook
+        installer = AppsScriptInstaller(token)
+        uninstall_result = await installer.uninstall_webhook(config.script_id)
+        
+        # Update config
+        if uninstall_result.get("success"):
+            config.script_id = None
+            config.script_installed_at = None
+            config.webhook_registered = False
+            await db.commit()
+        
+        return uninstall_result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("uninstall_webhook_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+# ============================================================================
+# WEBHOOK RECEIVER (from Google Apps Script)
+# ============================================================================
+
+
+@router.post("/webhook")
+async def receive_webhook_from_apps_script(
+    payload: Dict[str, Any],
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Receive webhook events from Google Apps Script
+    
+    This is the main endpoint that Apps Script sends changes to.
+    
+    Expected payload:
+    {
+        "event": "row_edited",
+        "config_id": "123",
+        "user_id": "user@gmail.com",
+        "entity_type": "deals",
+        "entity_id": "456",
+        "row_number": 5,
+        "changes": {
+            "TITLE": {"old_value": "Old", "new_value": "New", "column_index": 1}
+        },
+        "row_data": {"ID": "456", "TITLE": "New", ...},
+        "timestamp": "2025-11-27T10:30:00Z"
+    }
+    """
+    try:
+        # Validate required fields
+        config_id = payload.get("config_id")
+        if not config_id:
+            return {"success": False, "error": "Missing config_id"}
+        
+        # Handle test events
+        if payload.get("event") == "test":
+            logger.info("webhook_test_received", config_id=config_id)
+            return {"success": True, "message": "Test webhook received"}
+        
+        # Get config
+        stmt = select(SheetSyncConfig).where(SheetSyncConfig.id == int(config_id))
+        result = await db.execute(stmt)
+        config = result.scalars().first()
+        
+        if not config:
+            return {"success": False, "error": f"Config not found: {config_id}"}
+        
+        if not config.enabled:
+            return {"success": False, "error": "Sync config is disabled"}
+        
+        # Extract entity info
+        entity_id = payload.get("entity_id")
+        entity_type = payload.get("entity_type", config.entity_type)
+        row_number = payload.get("row_number")
+        changes = payload.get("changes", {})
+        row_data = payload.get("row_data", {})
+        
+        if not entity_id:
+            return {"success": False, "error": "Missing entity_id (ID column)"}
+        
+        if not changes:
+            return {"success": False, "error": "No changes detected"}
+        
+        # Check for conflicts (timestamp comparison)
+        from datetime import datetime
+        sheet_timestamp = datetime.fromisoformat(payload.get("timestamp", datetime.utcnow().isoformat()).replace("Z", "+00:00"))
+        
+        # Get or create row timestamp record
+        stmt = select(SheetRowTimestamp).where(
+            SheetRowTimestamp.config_id == config.id,
+            SheetRowTimestamp.sheet_row_number == row_number
+        )
+        result = await db.execute(stmt)
+        row_ts = result.scalars().first()
+        
+        conflict_detected = False
+        if row_ts and row_ts.bitrix_modified_at and row_ts.last_sync_at:
+            # Check if Bitrix was modified after last sync
+            if row_ts.bitrix_modified_at > row_ts.last_sync_at:
+                # Both sides modified - conflict!
+                conflict_detected = True
+                logger.warning(
+                    "conflict_detected",
+                    config_id=config_id,
+                    row=row_number,
+                    entity_id=entity_id
+                )
+        
+        # Process the webhook event
+        processor = ChangeProcessor()
+        process_result = await processor.process_webhook_event(
+            db=db,
+            config_id=int(config_id),
+            user_id=config.user_id,
+            webhook_data={
+                "event": payload.get("event"),
+                "entity_id": entity_id,
+                "row_number": row_number,
+                "changes": changes,
+                "row_data": row_data,
+                "conflict_detected": conflict_detected,
+            },
+        )
+        
+        # If no conflict, proceed with Bitrix24 update
+        if not conflict_detected and process_result.get("bitrix_update"):
+            updater = Bitrix24Updater(settings.bitrix24_webhook_url)
+            
+            bitrix_update = process_result["bitrix_update"]
+            update_result = await updater.update_entity(
+                entity_type=entity_type,
+                entity_id=str(entity_id),
+                fields=bitrix_update.get("fields", {}),
+            )
+            
+            # Update row timestamp
+            if not row_ts:
+                row_ts = SheetRowTimestamp(
+                    config_id=config.id,
+                    sheet_row_number=row_number,
+                    entity_id=str(entity_id),
+                )
+                db.add(row_ts)
+            
+            row_ts.sheet_modified_at = sheet_timestamp
+            row_ts.last_sync_at = datetime.utcnow()
+            row_ts.last_sheet_values = row_data
+            row_ts.sync_status = "synced" if update_result.get("success") else "error"
+            
+            await db.commit()
+            
+            if update_result.get("success"):
+                logger.info(
+                    "reverse_sync_completed",
+                    config_id=config_id,
+                    entity_id=entity_id,
+                    fields_updated=len(changes)
+                )
+                return {
+                    "success": True,
+                    "message": "Bitrix24 updated successfully",
+                    "entity_id": entity_id,
+                    "fields_updated": list(changes.keys()),
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": update_result.get("error", "Bitrix24 update failed"),
+                }
+        
+        elif conflict_detected:
+            # Handle conflict - timestamp comparison, latest wins
+            # For now, we'll let the sheet value win since user explicitly edited it
+            logger.info(
+                "conflict_resolved_sheet_wins",
+                config_id=config_id,
+                entity_id=entity_id
+            )
+            
+            # Still update Bitrix (sheet wins)
+            updater = Bitrix24Updater(settings.bitrix24_webhook_url)
+            bitrix_update = process_result.get("bitrix_update", {})
+            
+            if bitrix_update:
+                update_result = await updater.update_entity(
+                    entity_type=entity_type,
+                    entity_id=str(entity_id),
+                    fields=bitrix_update.get("fields", {}),
+                )
+                
+                return {
+                    "success": update_result.get("success", False),
+                    "message": "Conflict resolved (sheet wins)",
+                    "conflict_detected": True,
+                }
+        
+        return {
+            "success": True,
+            "message": "Event processed",
+            "log_id": process_result.get("log_id"),
+        }
+        
+    except Exception as e:
+        logger.error("webhook_processing_error", error=str(e))
+        return {
+            "success": False,
+            "error": str(e),
+        }
+
+
+# ============================================================================
+# ONE-CLICK SETUP ENDPOINT
+# ============================================================================
+
+
+@router.post("/setup-reverse-sync/{config_id}")
+async def setup_reverse_sync(
+    config_id: int,
+    user_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    One-click setup for reverse sync:
+    1. Detect editable fields from Bitrix24
+    2. Classify sheet columns
+    3. Apply colors to sheet
+    4. Add status column
+    5. Install Apps Script webhook
+    
+    Response:
+    {
+        "success": true,
+        "steps_completed": ["field_detection", "column_classification", "formatting", "webhook_install"],
+        "editable_fields": 12,
+        "readonly_fields": 3,
+        "script_id": "abc123..."
+    }
+    """
+    try:
+        steps_completed = []
+        result = {
+            "config_id": config_id,
+            "success": False,
+        }
+        
+        # Get config
+        stmt = select(SheetSyncConfig).where(SheetSyncConfig.id == config_id)
+        db_result = await db.execute(stmt)
+        config = db_result.scalars().first()
+        
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Config not found",
+            )
+        
+        if config.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied",
+            )
+        
+        # Get user token
+        oauth_auth = GoogleSheetsAuth()
+        token = await oauth_auth.get_valid_token(db, user_id)
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User tokens not found or expired",
+            )
+        
+        # Step 1: Detect editable fields from Bitrix24
+        detector = get_bitrix_field_detector()
+        editable_fields = await detector.get_editable_fields(config.entity_type)
+        readonly_fields = await detector.get_readonly_fields(config.entity_type)
+        steps_completed.append("field_detection")
+        result["editable_fields_count"] = len(editable_fields)
+        result["readonly_fields_count"] = len(readonly_fields)
+        
+        # Step 2: Get sheet headers and classify columns
+        webhook_manager = SheetsWebhookManager(token)
+        headers = await webhook_manager.get_sheet_headers(config.sheet_id, config.sheet_gid)
+        
+        # Create field mappings
+        field_mappings = {}
+        for header in headers:
+            # Try to match header to Bitrix field
+            normalized = header.strip().upper().replace(" ", "_")
+            if normalized in editable_fields or normalized in readonly_fields:
+                field_mappings[header] = normalized
+            else:
+                field_mappings[header] = header.upper()
+        
+        editable_cols, readonly_cols = await detector.classify_sheet_columns(
+            config.entity_type,
+            headers,
+            field_mappings
+        )
+        steps_completed.append("column_classification")
+        
+        # Step 3: Update field mappings in database
+        # First delete existing mappings
+        from sqlalchemy import delete
+        await db.execute(delete(FieldMapping).where(FieldMapping.config_id == config_id))
+        
+        # Create new mappings
+        for idx, header in enumerate(headers):
+            bitrix_field = field_mappings.get(header, header.upper())
+            is_editable = idx in [c["index"] for c in editable_cols]
+            
+            mapping = FieldMapping(
+                config_id=config_id,
+                sheet_column_index=idx,
+                sheet_column_name=header,
+                bitrix_field=bitrix_field,
+                is_updatable=is_editable,
+                is_readonly=not is_editable,
+                color_code="#E8F5E9" if is_editable else "#FFEBEE",
+                bitrix_field_type=editable_fields.get(bitrix_field, {}).get("type") if is_editable else None,
+                bitrix_field_title=editable_fields.get(bitrix_field, {}).get("title") if is_editable else None,
+            )
+            db.add(mapping)
+        
+        await db.flush()
+        steps_completed.append("mapping_saved")
+        
+        # Step 4: Format sheet with colors and add status column
+        formatter = SheetFormatter(token)
+        format_result = await formatter.format_sheet_for_reverse_sync(
+            spreadsheet_id=config.sheet_id,
+            gid=config.sheet_gid,
+            editable_column_indices=[c["index"] for c in editable_cols],
+            readonly_column_indices=[c["index"] for c in readonly_cols],
+            add_status_column=True,
+        )
+        
+        if format_result.get("success"):
+            config.status_column_index = format_result.get("status_column_index")
+            steps_completed.append("sheet_formatted")
+        
+        # Step 5: Install Apps Script webhook
+        installer = AppsScriptInstaller(token)
+        install_result = await installer.install_webhook(
+            spreadsheet_id=config.sheet_id,
+            config_id=str(config_id),
+            user_id=user_id,
+            entity_type=config.entity_type,
+        )
+        
+        if install_result.get("success"):
+            from datetime import datetime
+            config.script_id = install_result.get("script_id")
+            config.script_installed_at = datetime.utcnow()
+            config.webhook_registered = True
+            config.enabled = True
+            steps_completed.append("webhook_installed")
+            result["script_id"] = install_result.get("script_id")
+        
+        await db.commit()
+        
+        result["success"] = True
+        result["steps_completed"] = steps_completed
+        result["editable_columns"] = len(editable_cols)
+        result["readonly_columns"] = len(readonly_cols)
+        result["status_column_index"] = config.status_column_index
+        
+        logger.info(
+            "reverse_sync_setup_completed",
+            config_id=config_id,
+            steps=steps_completed
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("setup_reverse_sync_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+

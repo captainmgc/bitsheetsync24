@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import ProtectedRoute from '@/components/auth/ProtectedRoute'
+import { apiUrl } from '@/lib/config'
 import {
   Eye,
   Plus,
@@ -85,7 +86,7 @@ export default function ViewManagementPage() {
   const fetchAllViews = async () => {
     setLoading(true)
     try {
-      const response = await fetch('http://localhost:8000/api/views/')
+      const response = await fetch(apiUrl('/api/views/'))
       const result = await response.json()
       setViews(result.views || [])
     } catch (error) {
@@ -105,7 +106,7 @@ export default function ViewManagementPage() {
         }
       })
 
-      const response = await fetch(`http://localhost:8000/api/views/${formData.table_name}`, {
+      const response = await fetch(apiUrl(`/api/views/${formData.table_name}`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -133,7 +134,7 @@ export default function ViewManagementPage() {
       if (!editingView) return
 
       const response = await fetch(
-        `http://localhost:8000/api/views/${editingView.table_name}/${viewId}`,
+        apiUrl(`/api/views/${editingView.table_name}/${viewId}`),
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -162,7 +163,7 @@ export default function ViewManagementPage() {
 
     try {
       const response = await fetch(
-        `http://localhost:8000/api/views/${tableName}/${viewId}`,
+        apiUrl(`/api/views/${tableName}/${viewId}`),
         { method: 'DELETE' }
       )
 

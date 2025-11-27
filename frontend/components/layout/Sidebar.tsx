@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
 import { 
@@ -69,15 +70,27 @@ export default function Sidebar() {
       <div className="flex items-center justify-between p-4 border-b border-slate-700">
         {!collapsed && (
           <div className="flex items-center gap-2">
-            <Server className="w-8 h-8 text-blue-500" />
+            <Image
+              src="/icon-64.png"
+              alt="BitSheet24"
+              width={36}
+              height={36}
+              className="rounded-lg"
+            />
             <div>
               <h1 className="text-sm font-bold">BitSheet24</h1>
-              <p className="text-xs text-slate-400">Sync System</p>
+              <p className="text-xs text-slate-400">Japon Konutları</p>
             </div>
           </div>
         )}
         {collapsed && (
-          <Server className="w-8 h-8 text-blue-500 mx-auto" />
+          <Image
+            src="/icon-32.png"
+            alt="BitSheet24"
+            width={32}
+            height={32}
+            className="rounded mx-auto"
+          />
         )}
         <button
           onClick={() => setCollapsed(!collapsed)}

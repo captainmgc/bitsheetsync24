@@ -12,8 +12,9 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
+import { config } from '@/lib/config';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE = config.apiUrl;
 
 export interface UserSheetsToken {
   user_id: string;
@@ -29,6 +30,10 @@ export interface FieldMapping {
   bitrix_field: string;
   data_type: 'string' | 'number' | 'date' | 'boolean';
   is_updatable: boolean;
+  is_readonly?: boolean;
+  color_code?: string;
+  bitrix_field_type?: string;
+  bitrix_field_title?: string;
 }
 
 export interface SyncConfig {
@@ -36,7 +41,7 @@ export interface SyncConfig {
   sheet_id: string;
   sheet_name: string;
   gid: string;
-  entity_type: 'contacts' | 'deals' | 'companies' | 'tasks';
+  entity_type: 'contacts' | 'deals' | 'companies' | 'tasks' | 'leads' | 'activities';
   webhook_url: string;
   enabled: boolean;
   color_scheme: {
@@ -47,6 +52,12 @@ export interface SyncConfig {
   created_at: string;
   last_sync_at?: string;
   field_mappings: FieldMapping[];
+  // Reverse sync fields
+  status_column_index?: number;
+  status_column_name?: string;
+  script_id?: string;
+  script_installed_at?: string;
+  webhook_registered?: boolean;
 }
 
 export interface SyncLog {
@@ -64,6 +75,38 @@ export interface WebhookEvent {
   status: string;
   event_id: number;
   log_id: number;
+}
+
+// Bitrix24 Field Info
+export interface BitrixFieldInfo {
+  name: string;
+  title: string;
+  type: string;
+  isRequired: boolean;
+  isMultiple: boolean;
+  editable: boolean;
+}
+
+export interface BitrixFieldSummary {
+  entity_type: string;
+  total_fields: number;
+  editable_count: number;
+  readonly_count: number;
+  editable_fields: string[];
+  readonly_fields: string[];
+}
+
+export interface ReverseSyncSetupResult {
+  success: boolean;
+  config_id: number;
+  steps_completed: string[];
+  editable_fields_count: number;
+  readonly_fields_count: number;
+  editable_columns: number;
+  readonly_columns: number;
+  status_column_index?: number;
+  script_id?: string;
+  error?: string;
 }
 
 interface UseSheetSyncReturn {
@@ -94,6 +137,14 @@ interface UseSheetSyncReturn {
   loadSyncHistory: (configId: number, statusFilter?: string, limit?: number) => Promise<void>;
   retryFailedSyncs: (configId: number) => Promise<boolean>;
   getSyncStatus: (logId: number) => Promise<SyncLog | null>;
+
+  // Reverse Sync (NEW)
+  getBitrixFields: (entityType: string, editableOnly?: boolean) => Promise<BitrixFieldSummary | null>;
+  getAllBitrixFieldsSummary: () => Promise<Record<string, { total: number; editable: number; readonly: number }> | null>;
+  setupReverseSync: (configId: number) => Promise<ReverseSyncSetupResult | null>;
+  formatSheet: (configId: number, addStatusColumn?: boolean) => Promise<boolean>;
+  installWebhook: (configId: number) => Promise<boolean>;
+  uninstallWebhook: (configId: number) => Promise<boolean>;
 }
 
 export function useSheetSync(): UseSheetSyncReturn {
@@ -579,6 +630,253 @@ export function useSheetSync(): UseSheetSyncReturn {
     [userId]
   );
 
+  // =========================================================================
+  // REVERSE SYNC METHODS (NEW)
+  // =========================================================================
+
+  const getBitrixFields = useCallback(
+    async (entityType: string, editableOnly: boolean = false): Promise<BitrixFieldSummary | null> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        const url = `${API_BASE}/api/v1/sheet-sync/bitrix-fields/${entityType}?editable_only=${editableOnly}`;
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to load Bitrix24 fields');
+        }
+
+        return await response.json();
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Failed to load Bitrix24 fields';
+        setError(errorMsg);
+        console.error('Get Bitrix fields error:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    []
+  );
+
+  const getAllBitrixFieldsSummary = useCallback(
+    async (): Promise<Record<string, { total: number; editable: number; readonly: number }> | null> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        const response = await fetch(`${API_BASE}/api/v1/sheet-sync/bitrix-fields`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to load Bitrix24 fields summary');
+        }
+
+        const data = await response.json();
+        return data.summary;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Failed to load Bitrix24 fields summary';
+        setError(errorMsg);
+        console.error('Get all Bitrix fields error:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    []
+  );
+
+  const setupReverseSync = useCallback(
+    async (configId: number): Promise<ReverseSyncSetupResult | null> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        const response = await fetch(
+          `${API_BASE}/api/v1/sheet-sync/setup-reverse-sync/${configId}?user_id=${userId}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Failed to setup reverse sync');
+        }
+
+        const result = await response.json();
+
+        // Update current config with new data
+        if (result.success && currentConfig?.id === configId) {
+          setCurrentConfig((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              status_column_index: result.status_column_index,
+              script_id: result.script_id,
+              webhook_registered: true,
+            };
+          });
+        }
+
+        return result;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Failed to setup reverse sync';
+        setError(errorMsg);
+        console.error('Setup reverse sync error:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId, currentConfig?.id]
+  );
+
+  const formatSheet = useCallback(
+    async (configId: number, addStatusColumn: boolean = true): Promise<boolean> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        const response = await fetch(
+          `${API_BASE}/api/v1/sheet-sync/format-sheet/${configId}?user_id=${userId}&add_status_column=${addStatusColumn}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error('Failed to format sheet');
+        }
+
+        const result = await response.json();
+        return result.success;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Failed to format sheet';
+        setError(errorMsg);
+        console.error('Format sheet error:', err);
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  const installWebhook = useCallback(
+    async (configId: number): Promise<boolean> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        const response = await fetch(
+          `${API_BASE}/api/v1/sheet-sync/install-webhook/${configId}?user_id=${userId}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error('Failed to install webhook');
+        }
+
+        const result = await response.json();
+
+        // Update current config
+        if (result.success && currentConfig?.id === configId) {
+          setCurrentConfig((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              script_id: result.script_id,
+              webhook_registered: true,
+            };
+          });
+        }
+
+        return result.success;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Failed to install webhook';
+        setError(errorMsg);
+        console.error('Install webhook error:', err);
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId, currentConfig?.id]
+  );
+
+  const uninstallWebhook = useCallback(
+    async (configId: number): Promise<boolean> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        const response = await fetch(
+          `${API_BASE}/api/v1/sheet-sync/uninstall-webhook/${configId}?user_id=${userId}`,
+          {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error('Failed to uninstall webhook');
+        }
+
+        const result = await response.json();
+
+        // Update current config
+        if (result.success && currentConfig?.id === configId) {
+          setCurrentConfig((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              script_id: undefined,
+              webhook_registered: false,
+            };
+          });
+        }
+
+        return result.success;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Failed to uninstall webhook';
+        setError(errorMsg);
+        console.error('Uninstall webhook error:', err);
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId, currentConfig?.id]
+  );
+
   return {
     // State
     isLoading,
@@ -607,5 +905,13 @@ export function useSheetSync(): UseSheetSyncReturn {
     loadSyncHistory,
     retryFailedSyncs,
     getSyncStatus,
+
+    // Reverse Sync (NEW)
+    getBitrixFields,
+    getAllBitrixFieldsSummary,
+    setupReverseSync,
+    formatSheet,
+    installWebhook,
+    uninstallWebhook,
   };
 }
