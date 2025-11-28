@@ -165,9 +165,23 @@ async def get_table_data(
         count_result = await db.execute(count_query, params)
         total = count_result.scalar()
         
-        # Get data
+        # Get column names excluding internal columns
+        columns_query = text("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'bitrix' 
+            AND table_name = :table_name
+            AND column_name NOT IN ('original_data', 'data', 'source_hash', 'fetched_at')
+            ORDER BY ordinal_position
+        """)
+        
+        columns_result = await db.execute(columns_query, {"table_name": table_name})
+        columns = [row[0] for row in columns_result.fetchall()]
+        column_list = ", ".join(columns) if columns else "*"
+        
+        # Get data with specific columns (excluding original_data)
         data_query = text(f"""
-            SELECT *
+            SELECT {column_list}
             FROM bitrix.{table_name}
             {where_clause}
             {order_clause}

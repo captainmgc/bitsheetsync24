@@ -81,6 +81,15 @@ class Settings(BaseSettings):
         default="https://etablo.japonkonutlari.com/api/v1/sheet-sync/webhook"
     )
     reverse_sync_enabled: bool = Field(default=True)
+    
+    # AI Summary Settings
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
+    gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
+    openrouter_api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
+    ollama_url: str = Field(default="http://localhost:11434", alias="OLLAMA_URL")
+    default_ai_provider: str = Field(default="openai", alias="DEFAULT_AI_PROVIDER")
+    default_ai_model: str = Field(default="gpt-4o-mini", alias="DEFAULT_AI_MODEL")
 
 
 # Global settings instance

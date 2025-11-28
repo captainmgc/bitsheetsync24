@@ -57,7 +57,13 @@ export default function DataViewerPage() {
   // Table state
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
+    // Varsayılan olarak gizlenecek kolonlar
+    original_data: false,
+    data: false,
+    source_hash: false,
+    fetched_at: false,
+  })
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [globalFilter, setGlobalFilter] = useState('')
   const [pagination, setPagination] = useState({

@@ -16,7 +16,11 @@ import {
   Server,
   Eye,
   Zap,
-  User
+  User,
+  Sparkles,
+  History,
+  AlertTriangle,
+  Rocket
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -32,6 +36,11 @@ const navigationItems: NavItem[] = [
     name: 'Dashboard',
     href: '/dashboard',
     icon: LayoutDashboard,
+  },
+  {
+    name: 'Kurulum Sihirbazı',
+    href: '/setup',
+    icon: Rocket,
   },
   {
     name: 'Veri Görüntüleme',
@@ -52,6 +61,21 @@ const navigationItems: NavItem[] = [
     name: 'Sheet Sync',
     href: '/sheet-sync',
     icon: Zap,
+  },
+  {
+    name: 'AI Müşteri Özeti',
+    href: '/ai-summary',
+    icon: Sparkles,
+  },
+  {
+    name: 'Sync Geçmişi',
+    href: '/sync-history',
+    icon: History,
+  },
+  {
+    name: 'Hata Merkezi',
+    href: '/errors',
+    icon: AlertTriangle,
   },
 ]
 
