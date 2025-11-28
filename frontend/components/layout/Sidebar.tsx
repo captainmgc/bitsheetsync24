@@ -20,7 +20,8 @@ import {
   Sparkles,
   History,
   AlertTriangle,
-  Rocket
+  Rocket,
+  RefreshCw
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -41,6 +42,11 @@ const navigationItems: NavItem[] = [
     name: 'Kurulum Sihirbazı',
     href: '/setup',
     icon: Rocket,
+  },
+  {
+    name: 'Senkronizasyon',
+    href: '/sync',
+    icon: RefreshCw,
   },
   {
     name: 'Veri Görüntüleme',

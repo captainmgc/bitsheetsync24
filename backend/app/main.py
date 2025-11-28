@@ -9,7 +9,7 @@ import structlog
 
 from app.config import settings
 from app.database import init_db, close_db
-from app.api import exports, webhooks, tables, data, views, sheet_sync, lookups, ai_summary, setup
+from app.api import exports, webhooks, tables, data, views, sheet_sync, lookups, ai_summary, setup, sync
 
 # Configure structured logging
 structlog.configure(
@@ -81,6 +81,7 @@ app.include_router(lookups.router, prefix="/api/lookups", tags=["Lookups"])
 app.include_router(sheet_sync.router)  # Includes its own prefix /api/v1/sheet-sync
 app.include_router(ai_summary.router)  # AI Summary endpoints /api/v1/ai-summary
 app.include_router(setup.router)  # Setup wizard endpoints /api/v1/setup
+app.include_router(sync.router, prefix="/api/sync")  # Sync management endpoints /api/sync
 
 
 @app.get("/")
