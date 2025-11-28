@@ -40,11 +40,11 @@
 - [x] Türkçe tarih formatı (DD/MM/YYYY)
 - [x] Tablolar arası ilişki tespiti ve aktarım (RelationshipAnalyzer)
 
-#### [ ] A.3 Otomatik Senkronizasyon
-- [ ] Zamanlayıcı ile otomatik senkronizasyon (5dk, 15dk, 1saat, günlük)
-- [ ] Manuel "Şimdi Senkronize Et" butonu
-- [ ] Son senkronizasyon durumu göstergesi
-- [ ] Senkronizasyon geçmişi
+#### [x] A.3 Otomatik Senkronizasyon
+- [x] Zamanlayıcı ile otomatik senkronizasyon (5dk, 15dk, 1saat, günlük)
+- [x] Manuel "Şimdi Senkronize Et" butonu
+- [x] Son senkronizasyon durumu göstergesi
+- [x] Senkronizasyon geçmişi
 
 ---
 
