@@ -25,7 +25,7 @@ export const config = {
   apiUrl: process.env.NEXT_PUBLIC_API_URL || (
     isDevelopment 
       ? `http://localhost:${DEFAULT_BACKEND_PORT}` 
-      : 'https://etablo.japonkonutlari.com/api'
+      : 'https://etablo.japonkonutlari.com'
   ),
   
   // Frontend URL

@@ -140,8 +140,8 @@ async def cancel_export(
     await db.execute(
         text("""
             UPDATE bitrix.export_logs 
-            SET status = 'cancelled', completed_at = now()
-            WHERE id = :id AND status = 'running'
+            SET status = 'CANCELLED', completed_at = now()
+            WHERE id = :id AND status = 'RUNNING'
         """),
         {"id": export_id}
     )
@@ -168,7 +168,7 @@ async def retry_export(
     if not export_data:
         raise HTTPException(status_code=404, detail="Export not found")
     
-    if export_data[0] != "failed":
+    if export_data[0] != "FAILED":
         raise HTTPException(status_code=400, detail="Only failed exports can be retried")
     
     # Reset status
@@ -176,7 +176,7 @@ async def retry_export(
         text("""
             UPDATE bitrix.export_logs 
             SET 
-                status = 'pending',
+                status = 'PENDING',
                 error_message = NULL,
                 error_details = NULL,
                 processed_records = 0,
@@ -208,6 +208,15 @@ async def export_to_google_sheets(
     - Returns Google Sheets URL
     """
     try:
+        # Validate access token
+        if not request.access_token:
+            raise HTTPException(status_code=401, detail="Google access token is required. Please re-authenticate.")
+        
+        logger.info("export_started", 
+                   tables=request.tables,
+                   sheet_mode=request.sheet_mode,
+                   has_token=bool(request.access_token))
+        
         # Initialize Google Sheets service with user's access token
         sheets_service = GoogleSheetsService(request.access_token)
         
@@ -218,10 +227,16 @@ async def export_to_google_sheets(
             
             logger.info("creating_new_spreadsheet", name=request.sheet_name)
             
-            spreadsheet = await sheets_service.create_spreadsheet(
-                title=request.sheet_name,
-                sheets=request.tables  # Create one sheet per table
-            )
+            try:
+                spreadsheet = await sheets_service.create_spreadsheet(
+                    title=request.sheet_name,
+                    sheets=request.tables  # Create one sheet per table
+                )
+            except Exception as e:
+                error_msg = str(e)
+                if "401" in error_msg or "Invalid Credentials" in error_msg.lower():
+                    raise HTTPException(status_code=401, detail="Google token expired. Please re-authenticate.")
+                raise HTTPException(status_code=500, detail=f"Failed to create spreadsheet: {error_msg}")
             
             spreadsheet_id = spreadsheet["spreadsheet_id"]
             spreadsheet_url = spreadsheet["spreadsheet_url"]
@@ -280,13 +295,36 @@ async def export_to_google_sheets(
                                    view_id=view_id,
                                    filters=view_config["filters"])
             
-            # Apply date range filter
+            # Apply date range filter - use correct date column for each table
             if request.date_range:
-                where_conditions.append(
-                    "created_at >= :from_date AND created_at <= :to_date"
-                )
-                params["from_date"] = request.date_range.from_date
-                params["to_date"] = request.date_range.to_date
+                # Map table names to their date columns
+                date_column_map = {
+                    'contacts': 'date_create',
+                    'companies': 'date_create',
+                    'deals': 'date_create',
+                    'leads': 'date_create',
+                    'activities': 'created',
+                    'tasks': 'created_date',
+                    'task_comments': 'post_date',
+                }
+                date_column = date_column_map.get(table_name, 'date_create')
+                
+                # Check if the column exists in this table
+                check_column_query = text("""
+                    SELECT column_name FROM information_schema.columns 
+                    WHERE table_schema = 'bitrix' AND table_name = :table_name AND column_name = :column_name
+                """)
+                column_check = await db.execute(check_column_query, {"table_name": table_name, "column_name": date_column})
+                column_exists = column_check.scalar() is not None
+                
+                if column_exists:
+                    where_conditions.append(
+                        f"{date_column} >= :from_date AND {date_column} <= :to_date"
+                    )
+                    params["from_date"] = request.date_range.from_date
+                    params["to_date"] = request.date_range.to_date
+                else:
+                    logger.warning("date_column_not_found", table=table_name, column=date_column)
             
             # Build WHERE clause
             where_clause = ""
@@ -384,6 +422,7 @@ async def export_to_google_sheets(
         await sheets_service.close()
         
         # Log export to database
+        import json as json_module
         export_log_query = text("""
             INSERT INTO bitrix.export_logs (
                 entity_name,
@@ -393,18 +432,32 @@ async def export_to_google_sheets(
                 total_records,
                 processed_records,
                 created_at,
-                completed_at
+                completed_at,
+                config,
+                sheet_url,
+                sheet_id
             ) VALUES (
                 :entity_name,
                 'google_sheets',
                 :destination,
-                'completed',
+                'COMPLETED',
                 :total_records,
                 :processed_records,
                 :created_at,
-                :completed_at
+                :completed_at,
+                :config,
+                :sheet_url,
+                :sheet_id
             ) RETURNING id
         """)
+        
+        export_config = {
+            "tables": tables_exported,
+            "date_range": request.date_range.model_dump() if request.date_range else None,
+            "sheet_mode": request.sheet_mode,
+            "enable_sync": request.enable_sync,
+            "bidirectional": request.bidirectional
+        }
         
         export_result = await db.execute(export_log_query, {
             "entity_name": ",".join(tables_exported),
@@ -412,11 +465,46 @@ async def export_to_google_sheets(
             "total_records": total_rows,
             "processed_records": total_rows,
             "created_at": datetime.now(),
-            "completed_at": datetime.now()
+            "completed_at": datetime.now(),
+            "config": json_module.dumps(export_config),
+            "sheet_url": spreadsheet_url,
+            "sheet_id": spreadsheet_id
         })
         
         await db.commit()
         export_id = export_result.scalar()
+        
+        # Create sync config if enabled
+        sync_config_id = None
+        if request.enable_sync:
+            import json
+            sync_config_query = text("""
+                INSERT INTO bitrix.sheet_sync_configs (
+                    sheet_id, sheet_url, tables, access_token, refresh_token,
+                    sync_interval_minutes, bidirectional, status, created_at
+                ) VALUES (
+                    :sheet_id, :sheet_url, :tables, :access_token, :refresh_token,
+                    :sync_interval_minutes, :bidirectional, 'active', :created_at
+                ) RETURNING id
+            """)
+            
+            sync_result = await db.execute(sync_config_query, {
+                "sheet_id": spreadsheet_id,
+                "sheet_url": spreadsheet_url,
+                "tables": json.dumps(tables_exported),
+                "access_token": request.access_token,
+                "refresh_token": request.refresh_token,
+                "sync_interval_minutes": request.sync_interval_minutes,
+                "bidirectional": request.bidirectional,
+                "created_at": datetime.now()
+            })
+            await db.commit()
+            sync_config_id = sync_result.scalar()
+            
+            logger.info("sync_config_created_with_export",
+                       export_id=export_id,
+                       sync_config_id=sync_config_id,
+                       bidirectional=request.bidirectional)
         
         logger.info("export_completed",
                    export_id=export_id,
@@ -430,7 +518,8 @@ async def export_to_google_sheets(
             total_rows=total_rows,
             tables_exported=tables_exported,
             export_id=export_id,
-            created_at=datetime.now()
+            created_at=datetime.now(),
+            sync_config_id=sync_config_id
         )
         
     except HTTPException:
@@ -441,3 +530,4 @@ async def export_to_google_sheets(
             status_code=500,
             detail=f"Export failed: {str(e)}"
         )
+

@@ -146,12 +146,16 @@ async def get_ai_providers() -> List[AIProviderConfig]:
         default_model="gemini-1.5-flash"
     ))
     
-    # OpenRouter (multi-model gateway)
+    # OpenRouter (multi-model gateway) - Grok & others
     openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
     providers.append(AIProviderConfig(
         provider=AIProviderEnum.openrouter,
         api_key_configured=bool(openrouter_key),
         available_models=[
+            "x-ai/grok-4.1-fast:free",
+            "x-ai/grok-4-fast",
+            "x-ai/grok-3",
+            "x-ai/grok-3-mini",
             "openai/gpt-4o",
             "openai/gpt-4o-mini",
             "anthropic/claude-3.5-sonnet",
@@ -159,11 +163,9 @@ async def get_ai_providers() -> List[AIProviderConfig]:
             "google/gemini-pro-1.5",
             "google/gemini-flash-1.5",
             "meta-llama/llama-3.1-70b-instruct",
-            "meta-llama/llama-3.1-8b-instruct",
-            "mistralai/mixtral-8x7b-instruct",
             "deepseek/deepseek-chat"
         ],
-        default_model="openai/gpt-4o-mini"
+        default_model="x-ai/grok-4.1-fast:free"
     ))
     
     # Ollama (local)
@@ -177,16 +179,239 @@ async def get_ai_providers() -> List[AIProviderConfig]:
     return providers
 
 
+# Stage ID to Name mapping for Bitrix24
+STAGE_NAME_MAP = {
+    # Genel aşamalar
+    'NEW': 'Yeni',
+    'PREPARATION': 'Hazırlık',
+    'PREPAYMENT_INVOICE': 'Ön Ödeme Faturası',
+    'EXECUTING': 'Yürütülüyor',
+    'FINAL_INVOICE': 'Son Fatura',
+    'WON': 'Kazanıldı',
+    'LOSE': 'Kaybedildi',
+    'APOLOGY': 'İptal',
+    '1': 'Aşama 1',
+    '2': 'Aşama 2',
+    '3': 'Aşama 3',
+    # C24 - Ana Satış Hattı
+    'C24:NEW': 'Yeni Lead',
+    'C24:PREPARATION': 'Hazırlık',
+    'C24:PREPAYMENT_INVOICE': 'Ön Ödeme',
+    'C24:EXECUTING': 'Yürütülüyor',
+    'C24:FINAL_INVOICE': 'Son Fatura',
+    'C24:WON': 'Kazanıldı',
+    'C24:LOSE': 'Kaybedildi',
+    'C24:UC_4C1LPV': 'İlk Görüşme',
+    'C24:UC_UHK94F': 'Teklif Aşaması',
+    'C24:UC_JCZELB': 'Müzakere',
+    'C24:UC_C1GNUQ': 'Sözleşme Aşaması',
+    'C24:UC_FC3310': 'Onay Bekliyor',
+    'C24:UC_S9MBJL': 'Ödeme Bekliyor',
+    'C24:UC_WOZ7C2': 'Evrak Tamamlama',
+    'C24:UC_RID4CL': 'Tapu İşlemleri',
+    'C24:UC_RU9Y2W': 'Teslim Aşaması',
+    'C24:UC_L2DJM0': 'Satış Sonrası',
+    'C24:UC_U14SJW': 'İade Süreci',
+    'C24:UC_TVASL9': 'Beklemede',
+    'C24:UC_A139H9': 'Yeniden İletişim',
+    'C24:UC_DJCNLN': 'Referans',
+    'C24:UC_UHEF2A': 'VIP Müşteri',
+    'C24:UC_9XEXXQ': 'Özel Durum',
+    'C24:UC_96TEM0': 'Arşiv',
+    # C36 - İkinci Hat
+    'C36:NEW': 'Yeni',
+    'C36:PREPARATION': 'Hazırlık',
+    'C36:PREPAYMENT_INVOIC': 'Ön Ödeme',
+    'C36:EXECUTING': 'Yürütülüyor',
+    'C36:WON': 'Kazanıldı',
+    'C36:LOSE': 'Kaybedildi',
+    'C36:UC_V2VISS': 'Değerlendirme',
+    'C36:UC_62107M': 'Aktif Görüşme',
+    'C36:UC_H50HMN': 'Teklif Hazır',
+    'C36:UC_NEHO6L': 'Onay Süreci',
+    'C36:UC_XHNV5V': 'Tamamlandı',
+    'C36:1': 'Aşama 1',
+    'C36:2': 'Aşama 2',
+    'C36:3': 'Aşama 3',
+    # C32
+    'C32:NEW': 'Yeni',
+    'C32:PREPARATION': 'Hazırlık',
+    'C32:WON': 'Kazanıldı',
+    'C32:LOSE': 'Kaybedildi',
+    'C32:UC_MNIRUC': 'İşlemde',
+    # C52
+    'C52:NEW': 'Yeni',
+    'C52:WON': 'Kazanıldı',
+    'C52:LOSE': 'Kaybedildi',
+    'C52:1': 'Aşama 1',
+    # C54
+    'C54:NEW': 'Yeni',
+    'C54:PREPARATION': 'Hazırlık',
+    'C54:WON': 'Kazanıldı',
+    'C54:LOSE': 'Kaybedildi',
+    'C54:UC_4Q99X9': 'İşlemde',
+    # C56
+    'C56:NEW': 'Yeni',
+    'C56:PREPARATION': 'Hazırlık',
+    'C56:UC_I1DOSH': 'İşlemde',
+    # C58
+    'C58:NEW': 'Yeni',
+    'C58:PREPARATION': 'Hazırlık',
+    'C58:PREPAYMENT_INVOIC': 'Ön Ödeme',
+    'C58:EXECUTING': 'Yürütülüyor',
+    'C58:LOSE': 'Kaybedildi',
+    # C62
+    'C62:NEW': 'Yeni',
+    'C62:PREPARATION': 'Hazırlık',
+    'C62:UC_TXHSGH': 'İşlemde',
+    'C62:UC_A6EJVT': 'Değerlendirme',
+    'C62:UC_HDI55O': 'Tamamlandı',
+    # C64
+    'C64:WON': 'Kazanıldı',
+    'C64:LOSE': 'Kaybedildi',
+    'C64:UC_02XUXE': 'İşlemde',
+    'C64:UC_EKNJCK': 'Değerlendirme',
+    'C64:UC_GCG8B9': 'Onay Bekliyor',
+    'C64:UC_1PMEJU': 'Tamamlanıyor',
+    'C64:UC_WV6G6Y': 'Kontrol',
+    'C64:UC_H1126A': 'Son Aşama',
+    # C66
+    'C66:NEW': 'Yeni',
+    'C66:PREPARATION': 'Hazırlık',
+    'C66:WON': 'Kazanıldı',
+    'C66:UC_SAT170': 'Satış Aşaması',
+    # Diğer özel aşamalar
+    'UC_12IFQ1': 'Aktif Takip',
+    'UC_4WC54T': 'Fırsat',
+    'UC_UFWXIW': 'Potansiyel',
+    'UC_32QCCC': 'Değerlendirme',
+    'UC_N1HRJX': 'Yeni Fırsat',
+    'UC_IZZTCF': 'İletişim',
+    'UC_P2WVHX': 'Takip',
+}
+
+def get_stage_name(stage_id: str) -> str:
+    """Convert stage ID to human-readable name"""
+    if not stage_id:
+        return 'Bilinmeyen'
+    
+    # Direct match
+    if stage_id in STAGE_NAME_MAP:
+        return STAGE_NAME_MAP[stage_id]
+    
+    # Try to parse and create readable name
+    if ':' in stage_id:
+        parts = stage_id.split(':')
+        prefix = parts[0]
+        suffix = parts[1] if len(parts) > 1 else ''
+        
+        # Check if suffix is a known stage
+        if suffix in STAGE_NAME_MAP:
+            return STAGE_NAME_MAP[suffix]
+        
+        # Check with prefix
+        if suffix.startswith('UC_'):
+            return f'Özel Aşama ({prefix})'
+        
+        return suffix if suffix else stage_id
+    
+    return stage_id
+
+
+# Category ID to Name mapping
+CATEGORY_NAME_MAP = {
+    '0': 'Genel',
+    '24': 'Satış Yönetimi',
+    '26': 'Müşteri İlişkileri',
+    '30': 'Proje Yönetimi',
+    '32': 'Servis',
+    '36': 'Tedarik Yönetimi',
+    '40': 'Finans',
+    '42': 'İnsan Kaynakları',
+    '44': 'Pazarlama',
+    '46': 'Destek',
+    '48': 'İş Geliştirme',
+    '50': 'Operasyon',
+    '52': 'Gayrimenkul',
+    '54': 'İnşaat',
+    '56': 'Mühendislik',
+    '58': 'Lojistik',
+    '62': 'Kalite Kontrol',
+    '64': 'Satın Alma',
+    '66': 'Üretim',
+}
+
+def get_category_name(category_id: str) -> str:
+    """Get human-readable category name"""
+    if not category_id:
+        return 'Belirsiz'
+    return CATEGORY_NAME_MAP.get(category_id, f'Kategori {category_id}')
+
+
+@router.get("/categories")
+async def get_deal_categories(
+    status: Optional[str] = Query(default="active", description="Filter: 'active', 'won', 'lost', 'all'"),
+    db: AsyncSession = Depends(get_db)
+) -> List[dict]:
+    """
+    Get available deal categories (pipelines) for filtering
+    """
+    try:
+        # Build status condition
+        status_condition = ""
+        if status == "active":
+            status_condition = "AND stage_id NOT LIKE '%LOSE%' AND stage_id NOT LIKE '%WON%'"
+        elif status == "won":
+            status_condition = "AND stage_id LIKE '%WON%'"
+        elif status == "lost":
+            status_condition = "AND stage_id LIKE '%LOSE%'"
+        
+        query = text(f"""
+            SELECT DISTINCT 
+                category_id,
+                COUNT(*) as deal_count
+            FROM bitrix.deals
+            WHERE category_id IS NOT NULL {status_condition}
+            GROUP BY category_id
+            ORDER BY deal_count DESC
+        """)
+        
+        result = await db.execute(query)
+        categories_raw = [dict(row._mapping) for row in result.fetchall()]
+        
+        # Add category_name to each category
+        categories = []
+        for cat in categories_raw:
+            cat['category_name'] = get_category_name(cat.get('category_id'))
+            categories.append(cat)
+        
+        return categories
+        
+    except Exception as e:
+        logger.error("get_deal_categories_failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
 @router.get("/deals")
 async def list_deals(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, le=100),
     search: Optional[str] = Query(default=None),
+    category_id: Optional[str] = Query(default=None, description="Filter by category/pipeline"),
     stage_id: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default="active", description="Filter: 'active', 'won', 'lost', 'all'"),
     db: AsyncSession = Depends(get_db)
 ) -> dict:
     """
     List deals with summary status
+    Status filter:
+    - active: Exclude WON and LOSE stages (default)
+    - won: Only WON stages
+    - lost: Only LOSE stages
+    - all: All deals
     """
     try:
         offset = (page - 1) * page_size
@@ -196,34 +421,47 @@ async def list_deals(
         params = {"limit": page_size, "offset": offset}
         
         if search:
-            conditions.append("d.data->>'TITLE' ILIKE :search")
+            conditions.append("d.title ILIKE :search")
             params["search"] = f"%{search}%"
         
+        if category_id:
+            conditions.append("d.category_id = :category_id")
+            params["category_id"] = category_id
+        
         if stage_id:
-            conditions.append("d.data->>'STAGE_ID' = :stage_id")
+            conditions.append("d.stage_id = :stage_id")
             params["stage_id"] = stage_id
+        
+        # Status filter
+        if status == "active":
+            conditions.append("d.stage_id NOT LIKE '%LOSE%' AND d.stage_id NOT LIKE '%WON%'")
+        elif status == "won":
+            conditions.append("d.stage_id LIKE '%WON%'")
+        elif status == "lost":
+            conditions.append("d.stage_id LIKE '%LOSE%'")
+        # status == "all" -> no filter
         
         where_clause = " AND ".join(conditions) if conditions else "1=1"
         
-        # Get deals with contact/company names
+        # Get deals with contact/company names - using direct columns
         query = text(f"""
             SELECT 
                 d.id,
-                d.data->>'TITLE' as title,
-                d.data->>'STAGE_ID' as stage_id,
-                d.data->>'OPPORTUNITY' as opportunity,
-                d.data->>'CURRENCY_ID' as currency,
-                d.data->>'DATE_CREATE' as date_create,
-                d.data->>'DATE_MODIFY' as date_modify,
-                CONCAT(c.data->>'NAME', ' ', c.data->>'LAST_NAME') as contact_name,
-                comp.data->>'TITLE' as company_name,
-                CONCAT(u.data->>'NAME', ' ', u.data->>'LAST_NAME') as assigned_by_name,
+                d.title,
+                d.stage_id,
+                d.opportunity,
+                d.currency_id as currency,
+                d.date_create,
+                d.date_modify,
+                COALESCE(c.full_name, CONCAT(c.name, ' ', c.last_name)) as contact_name,
+                comp.title as company_name,
+                CONCAT(u.name, ' ', u.last_name) as assigned_by_name,
                 CASE WHEN s.id IS NOT NULL THEN true ELSE false END as has_summary,
                 s.created_at as last_summary_at
             FROM bitrix.deals d
-            LEFT JOIN bitrix.contacts c ON (d.data->>'CONTACT_ID')::int = c.id
-            LEFT JOIN bitrix.companies comp ON (d.data->>'COMPANY_ID')::int = comp.id
-            LEFT JOIN bitrix.users u ON (d.data->>'ASSIGNED_BY_ID')::int = u.id
+            LEFT JOIN bitrix.contacts c ON d.contact_id = c.bitrix_id
+            LEFT JOIN bitrix.companies comp ON d.company_id = comp.bitrix_id
+            LEFT JOIN bitrix.users u ON d.assigned_by_id::int = u.id
             LEFT JOIN LATERAL (
                 SELECT id, created_at 
                 FROM bitrix.ai_summaries 
@@ -232,12 +470,18 @@ async def list_deals(
                 LIMIT 1
             ) s ON true
             WHERE {where_clause}
-            ORDER BY d.data->>'DATE_MODIFY' DESC NULLS LAST
+            ORDER BY d.date_modify DESC NULLS LAST
             LIMIT :limit OFFSET :offset
         """)
         
         result = await db.execute(query, params)
-        deals = [dict(row._mapping) for row in result.fetchall()]
+        deals_raw = [dict(row._mapping) for row in result.fetchall()]
+        
+        # Add stage_name to each deal
+        deals = []
+        for deal in deals_raw:
+            deal['stage_name'] = get_stage_name(deal.get('stage_id'))
+            deals.append(deal)
         
         # Get total count
         count_query = text(f"""
@@ -270,23 +514,28 @@ async def get_deal_details(
 ) -> dict:
     """
     Get detailed deal information including related data counts
+    Enhanced: Returns all deals for the contact, contact type name, stage names
     """
     try:
         collector = CustomerDataCollector(db)
         data = await collector.collect_all_data(deal_id)
+        
+        all_contact_deals = data.get("all_contact_deals", [])
         
         return {
             "deal": data["deal"],
             "contact": data["contact"],
             "company": data["company"],
             "responsible_name": data["responsible_name"],
+            "all_contact_deals": all_contact_deals,
             "stats": {
                 "activities_count": len(data["activities"]),
                 "tasks_count": len(data["tasks"]),
-                "task_comments_count": len(data["task_comments"])
+                "task_comments_count": len(data["task_comments"]),
+                "total_deals_count": len(all_contact_deals)
             },
-            "recent_activities": data["activities"][:5],
-            "recent_tasks": data["tasks"][:5]
+            "recent_activities": data["activities"][:10],
+            "recent_tasks": data["tasks"][:10]
         }
         
     except ValueError as e:
@@ -320,6 +569,8 @@ async def generate_summary(
         provider_map = {
             AIProviderEnum.openai: AIProvider.OPENAI,
             AIProviderEnum.claude: AIProvider.CLAUDE,
+            AIProviderEnum.gemini: AIProvider.GEMINI,
+            AIProviderEnum.openrouter: AIProvider.OPENROUTER,
             AIProviderEnum.ollama: AIProvider.OLLAMA
         }
         
@@ -605,24 +856,49 @@ async def delete_summary(
 
 @router.get("/stages")
 async def get_deal_stages(
+    status: Optional[str] = Query(default="active", description="Filter: 'active', 'won', 'lost', 'all'"),
+    category_id: Optional[str] = Query(default=None, description="Filter by category/pipeline"),
     db: AsyncSession = Depends(get_db)
 ) -> List[dict]:
     """
     Get available deal stages for filtering
     """
     try:
-        query = text("""
+        # Build conditions
+        conditions = ["stage_id IS NOT NULL"]
+        
+        if status == "active":
+            conditions.append("stage_id NOT LIKE '%LOSE%' AND stage_id NOT LIKE '%WON%'")
+        elif status == "won":
+            conditions.append("stage_id LIKE '%WON%'")
+        elif status == "lost":
+            conditions.append("stage_id LIKE '%LOSE%'")
+        
+        if category_id:
+            conditions.append(f"category_id = '{category_id}'")
+        
+        where_clause = " AND ".join(conditions)
+        
+        query = text(f"""
             SELECT DISTINCT 
-                data->>'STAGE_ID' as stage_id,
+                stage_id,
                 COUNT(*) as deal_count
             FROM bitrix.deals
-            WHERE data->>'STAGE_ID' IS NOT NULL
-            GROUP BY data->>'STAGE_ID'
+            WHERE {where_clause}
+            GROUP BY stage_id
             ORDER BY deal_count DESC
         """)
         
         result = await db.execute(query)
-        return [dict(row._mapping) for row in result.fetchall()]
+        stages_raw = [dict(row._mapping) for row in result.fetchall()]
+        
+        # Add stage_name to each stage
+        stages = []
+        for stage in stages_raw:
+            stage['stage_name'] = get_stage_name(stage.get('stage_id'))
+            stages.append(stage)
+        
+        return stages
         
     except Exception as e:
         logger.error("get_deal_stages_failed", error=str(e))

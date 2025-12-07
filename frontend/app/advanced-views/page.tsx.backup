@@ -1,0 +1,944 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import { useSession } from 'next-auth/react'
+import DashboardLayout from '@/components/layout/DashboardLayout'
+import ProtectedRoute from '@/components/auth/ProtectedRoute'
+import { apiUrl } from '@/lib/config'
+import {
+  Layers,
+  Plus,
+  Edit,
+  Trash2,
+  Save,
+  X,
+  Database,
+  Link2,
+  ArrowRight,
+  Play,
+  Eye,
+  ChevronDown,
+  ChevronRight,
+  Columns,
+  Filter,
+  SortAsc,
+  Star,
+  Settings,
+  Table,
+  RefreshCw
+} from 'lucide-react'
+
+// Types
+interface TableRelation {
+  id: number
+  source_table: string
+  source_column: string
+  target_table: string
+  target_column: string
+  relation_type: string
+  display_name: string
+  direction?: string
+}
+
+interface TableInfo {
+  name: string
+  display_name: string
+}
+
+interface ColumnInfo {
+  column_name: string
+  display_name: string
+  data_type: string
+  is_visible: boolean
+}
+
+interface JoinConfig {
+  table: string
+  alias: string
+  join_type: 'LEFT' | 'INNER' | 'RIGHT'
+  on_source: string
+  on_target: string
+  reverse?: boolean
+}
+
+interface SelectedColumn {
+  table: string
+  column: string
+  alias: string
+  display_name: string
+  table_alias?: string
+}
+
+interface AdvancedView {
+  id: number
+  view_name: string
+  description: string
+  primary_table: string
+  joins: JoinConfig[]
+  selected_columns: SelectedColumn[]
+  filters: Record<string, any>
+  sort_config: Record<string, any>
+  is_default: boolean
+  is_system: boolean
+  created_at: string
+  join_count?: number
+  column_count?: number
+}
+
+interface ViewData {
+  data: Record<string, any>[]
+  total: number
+  columns: string[]
+}
+
+export default function AdvancedViewsPage() {
+  const { data: session } = useSession()
+  
+  // State
+  const [views, setViews] = useState<AdvancedView[]>([])
+  const [tables, setTables] = useState<TableInfo[]>([])
+  const [relations, setRelations] = useState<TableRelation[]>([])
+  const [loading, setLoading] = useState(true)
+  
+  // Builder state
+  const [showBuilder, setShowBuilder] = useState(false)
+  const [editingView, setEditingView] = useState<AdvancedView | null>(null)
+  const [primaryTable, setPrimaryTable] = useState('')
+  const [viewName, setViewName] = useState('')
+  const [viewDescription, setViewDescription] = useState('')
+  const [joins, setJoins] = useState<JoinConfig[]>([])
+  const [selectedColumns, setSelectedColumns] = useState<SelectedColumn[]>([])
+  const [isDefault, setIsDefault] = useState(false)
+  
+  // Column selection helpers
+  const [availableColumns, setAvailableColumns] = useState<Record<string, ColumnInfo[]>>({})
+  const [tableRelations, setTableRelations] = useState<TableRelation[]>([])
+  
+  // Preview state
+  const [previewView, setPreviewView] = useState<AdvancedView | null>(null)
+  const [previewData, setPreviewData] = useState<ViewData | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+
+  // Fetch initial data
+  useEffect(() => {
+    fetchViews()
+    fetchTables()
+    fetchAllRelations()
+  }, [])
+
+  // Fetch columns when primary table changes
+  useEffect(() => {
+    if (primaryTable) {
+      fetchTableColumns(primaryTable)
+      fetchTableRelations(primaryTable)
+    }
+  }, [primaryTable])
+
+  // Fetch columns for joined tables
+  useEffect(() => {
+    joins.forEach(join => {
+      if (join.table && !availableColumns[join.table]) {
+        fetchTableColumns(join.table)
+      }
+    })
+  }, [joins])
+
+  const fetchViews = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch(apiUrl('/api/advanced-views/'))
+      const result = await response.json()
+      setViews(result.views || [])
+    } catch (error) {
+      console.error('Failed to fetch views:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchTables = async () => {
+    try {
+      const response = await fetch(apiUrl('/api/advanced-views/tables/list'))
+      const result = await response.json()
+      setTables(result.tables || [])
+    } catch (error) {
+      console.error('Failed to fetch tables:', error)
+    }
+  }
+
+  const fetchAllRelations = async () => {
+    try {
+      const response = await fetch(apiUrl('/api/advanced-views/relations'))
+      const result = await response.json()
+      setRelations(result.relations || [])
+    } catch (error) {
+      console.error('Failed to fetch relations:', error)
+    }
+  }
+
+  const fetchTableColumns = async (tableName: string) => {
+    try {
+      const response = await fetch(apiUrl(`/api/advanced-views/tables/columns/${tableName}`))
+      const result = await response.json()
+      setAvailableColumns(prev => ({
+        ...prev,
+        [tableName]: result.columns || []
+      }))
+    } catch (error) {
+      console.error('Failed to fetch columns:', error)
+    }
+  }
+
+  const fetchTableRelations = async (tableName: string) => {
+    try {
+      const response = await fetch(apiUrl(`/api/advanced-views/relations/${tableName}`))
+      const result = await response.json()
+      setTableRelations(result.relations || [])
+    } catch (error) {
+      console.error('Failed to fetch table relations:', error)
+    }
+  }
+
+  const getTableDisplayName = (name: string) => {
+    return tables.find(t => t.name === name)?.display_name || name
+  }
+
+  // Builder functions
+  const startNewView = () => {
+    setEditingView(null)
+    setPrimaryTable('')
+    setViewName('')
+    setViewDescription('')
+    setJoins([])
+    setSelectedColumns([])
+    setIsDefault(false)
+    setShowBuilder(true)
+  }
+
+  const startEditView = async (view: AdvancedView) => {
+    // Fetch full view details
+    try {
+      const response = await fetch(apiUrl(`/api/advanced-views/${view.id}`))
+      const fullView = await response.json()
+      
+      setEditingView(fullView)
+      setPrimaryTable(fullView.primary_table)
+      setViewName(fullView.view_name)
+      setViewDescription(fullView.description || '')
+      setJoins(fullView.joins || [])
+      setSelectedColumns(fullView.selected_columns || [])
+      setIsDefault(fullView.is_default)
+      setShowBuilder(true)
+    } catch (error) {
+      console.error('Failed to fetch view details:', error)
+    }
+  }
+
+  const addJoin = () => {
+    setJoins([...joins, {
+      table: '',
+      alias: '',
+      join_type: 'LEFT',
+      on_source: '',
+      on_target: ''
+    }])
+  }
+
+  const updateJoin = (index: number, field: keyof JoinConfig, value: any) => {
+    const updated = [...joins]
+    updated[index] = { ...updated[index], [field]: value }
+    
+    // Auto-set alias if table is selected
+    if (field === 'table' && value) {
+      updated[index].alias = value.charAt(0) + (index + 1)
+    }
+    
+    setJoins(updated)
+  }
+
+  const removeJoin = (index: number) => {
+    setJoins(joins.filter((_, i) => i !== index))
+    // Also remove columns from this table
+    const removedTable = joins[index]?.table
+    if (removedTable) {
+      setSelectedColumns(selectedColumns.filter(c => c.table !== removedTable))
+    }
+  }
+
+  const applyRelation = (index: number, relation: TableRelation) => {
+    const updated = [...joins]
+    if (relation.direction === 'outgoing') {
+      updated[index].table = relation.target_table
+      updated[index].alias = relation.target_table.charAt(0) + (index + 1)
+      updated[index].on_source = relation.source_column
+      updated[index].on_target = relation.target_column
+    } else {
+      updated[index].table = relation.source_table
+      updated[index].alias = relation.source_table.charAt(0) + (index + 1)
+      updated[index].on_source = relation.target_column
+      updated[index].on_target = relation.source_column
+      updated[index].reverse = true
+    }
+    setJoins(updated)
+  }
+
+  const toggleColumn = (table: string, column: ColumnInfo, tableAlias?: string) => {
+    const existing = selectedColumns.find(
+      c => c.table === table && c.column === column.column_name
+    )
+    
+    if (existing) {
+      setSelectedColumns(selectedColumns.filter(
+        c => !(c.table === table && c.column === column.column_name)
+      ))
+    } else {
+      setSelectedColumns([...selectedColumns, {
+        table,
+        column: column.column_name,
+        alias: column.column_name,
+        display_name: column.display_name || column.column_name,
+        table_alias: tableAlias
+      }])
+    }
+  }
+
+  const isColumnSelected = (table: string, columnName: string) => {
+    return selectedColumns.some(c => c.table === table && c.column === columnName)
+  }
+
+  const saveView = async () => {
+    try {
+      const viewData = {
+        view_name: viewName,
+        description: viewDescription,
+        primary_table: primaryTable,
+        joins,
+        selected_columns: selectedColumns,
+        filters: {},
+        sort_config: {},
+        is_default: isDefault
+      }
+
+      let response
+      if (editingView) {
+        response = await fetch(apiUrl(`/api/advanced-views/${editingView.id}`), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(viewData)
+        })
+      } else {
+        response = await fetch(apiUrl('/api/advanced-views/'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(viewData)
+        })
+      }
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.detail || 'Failed to save view')
+      }
+
+      await fetchViews()
+      setShowBuilder(false)
+      alert(editingView ? 'View güncellendi!' : 'View oluşturuldu!')
+    } catch (error: any) {
+      console.error('Error saving view:', error)
+      alert('Hata: ' + error.message)
+    }
+  }
+
+  const deleteView = async (viewId: number) => {
+    if (!confirm('Bu view\'ı silmek istediğinize emin misiniz?')) return
+    
+    try {
+      const response = await fetch(apiUrl(`/api/advanced-views/${viewId}`), {
+        method: 'DELETE'
+      })
+      
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.detail || 'Failed to delete view')
+      }
+      
+      await fetchViews()
+      alert('View silindi!')
+    } catch (error: any) {
+      alert('Hata: ' + error.message)
+    }
+  }
+
+  const previewViewData = async (view: AdvancedView) => {
+    setPreviewView(view)
+    setPreviewLoading(true)
+    setPreviewData(null)
+    
+    try {
+      const response = await fetch(apiUrl(`/api/advanced-views/${view.id}/data?limit=20`))
+      const result = await response.json()
+      setPreviewData(result)
+    } catch (error) {
+      console.error('Failed to preview view:', error)
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  return (
+    <ProtectedRoute>
+      <DashboardLayout>
+        <div className="space-y-6">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl p-6 text-white shadow-lg">
+            <h1 className="text-2xl font-bold mb-2 flex items-center gap-2">
+              <Layers className="w-8 h-8" />
+              Gelişmiş View Yönetimi
+            </h1>
+            <p className="text-purple-100">
+              Birden fazla tabloyu birleştirin, ilişkili verileri tek view'da görüntüleyin
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+              <Database className="w-4 h-4" />
+              <span>{views.length} view tanımlı</span>
+              <span className="mx-2">•</span>
+              <Link2 className="w-4 h-4" />
+              <span>{relations.length} ilişki mevcut</span>
+            </div>
+            <button
+              onClick={startNewView}
+              className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg font-medium hover:shadow-lg transition-all flex items-center gap-2"
+            >
+              <Plus className="w-5 h-5" />
+              Yeni Gelişmiş View
+            </button>
+          </div>
+
+          {/* View Builder Modal */}
+          {showBuilder && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+                {/* Builder Header */}
+                <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Settings className="w-6 h-6" />
+                    {editingView ? 'View Düzenle' : 'Yeni Gelişmiş View'}
+                  </h2>
+                  <button
+                    onClick={() => setShowBuilder(false)}
+                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Builder Content */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                  {/* Basic Info */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                        View Adı *
+                      </label>
+                      <input
+                        type="text"
+                        value={viewName}
+                        onChange={(e) => setViewName(e.target.value)}
+                        placeholder="Örn: CRM Genel Rapor"
+                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                        <Database className="w-4 h-4 inline mr-1" />
+                        Ana Tablo *
+                      </label>
+                      <select
+                        value={primaryTable}
+                        onChange={(e) => setPrimaryTable(e.target.value)}
+                        disabled={!!editingView}
+                        className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white disabled:opacity-50"
+                      >
+                        <option value="">Tablo Seçin</option>
+                        {tables.filter(t => ['contacts', 'companies', 'deals', 'tasks', 'activities', 'leads', 'task_comments'].includes(t.name)).map(table => (
+                          <option key={table.name} value={table.name}>
+                            {table.display_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      Açıklama
+                    </label>
+                    <input
+                      type="text"
+                      value={viewDescription}
+                      onChange={(e) => setViewDescription(e.target.value)}
+                      placeholder="Bu view hakkında kısa açıklama"
+                      className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  {/* JOIN Configuration */}
+                  {primaryTable && (
+                    <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="font-medium text-slate-900 dark:text-white flex items-center gap-2">
+                          <Link2 className="w-5 h-5" />
+                          Tablo Birleştirmeleri (JOIN)
+                        </h3>
+                        <button
+                          onClick={addJoin}
+                          className="px-3 py-1 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Tablo Ekle
+                        </button>
+                      </div>
+
+                      {/* Available Relations */}
+                      {tableRelations.length > 0 && (
+                        <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
+                          <p className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
+                            Mevcut İlişkiler ({tableRelations.length})
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {tableRelations.map((rel, i) => (
+                              <span
+                                key={i}
+                                className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded"
+                              >
+                                {rel.direction === 'outgoing' ? (
+                                  <>
+                                    {primaryTable}.{rel.source_column} → {rel.target_table}
+                                  </>
+                                ) : (
+                                  <>
+                                    {rel.source_table} → {primaryTable}.{rel.target_column}
+                                  </>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Join list */}
+                      {joins.length === 0 ? (
+                        <p className="text-sm text-slate-500 text-center py-4">
+                          Henüz tablo birleştirmesi eklenmedi. "Tablo Ekle" butonuna tıklayın.
+                        </p>
+                      ) : (
+                        <div className="space-y-3">
+                          {joins.map((join, index) => (
+                            <div
+                              key={index}
+                              className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700"
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-3">
+                                  <div>
+                                    <label className="text-xs text-slate-500 mb-1 block">JOIN Tipi</label>
+                                    <select
+                                      value={join.join_type}
+                                      onChange={(e) => updateJoin(index, 'join_type', e.target.value)}
+                                      className="w-full px-2 py-1 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-900"
+                                    >
+                                      <option value="LEFT">LEFT JOIN</option>
+                                      <option value="INNER">INNER JOIN</option>
+                                      <option value="RIGHT">RIGHT JOIN</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="text-xs text-slate-500 mb-1 block">Hedef Tablo</label>
+                                    <select
+                                      value={join.table}
+                                      onChange={(e) => updateJoin(index, 'table', e.target.value)}
+                                      className="w-full px-2 py-1 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-900"
+                                    >
+                                      <option value="">Seçin</option>
+                                      {tables.filter(t => t.name !== primaryTable && !joins.some((j, i) => i !== index && j.table === t.name)).map(table => (
+                                        <option key={table.name} value={table.name}>
+                                          {table.display_name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="text-xs text-slate-500 mb-1 block">Kaynak Kolon</label>
+                                    <select
+                                      value={join.on_source}
+                                      onChange={(e) => updateJoin(index, 'on_source', e.target.value)}
+                                      className="w-full px-2 py-1 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-900"
+                                    >
+                                      <option value="">Seçin</option>
+                                      {(availableColumns[primaryTable] || []).map(col => (
+                                        <option key={col.column_name} value={col.column_name}>
+                                          {col.column_name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="text-xs text-slate-500 mb-1 block">Hedef Kolon</label>
+                                    <select
+                                      value={join.on_target}
+                                      onChange={(e) => updateJoin(index, 'on_target', e.target.value)}
+                                      className="w-full px-2 py-1 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-900"
+                                      disabled={!join.table}
+                                    >
+                                      <option value="">Seçin</option>
+                                      {(availableColumns[join.table] || []).map(col => (
+                                        <option key={col.column_name} value={col.column_name}>
+                                          {col.column_name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
+                                
+                                {/* Quick relation apply */}
+                                <div className="flex items-center gap-2">
+                                  {tableRelations.filter(r => 
+                                    (r.direction === 'outgoing' && r.target_table === join.table) ||
+                                    (r.direction === 'incoming' && r.source_table === join.table)
+                                  ).length > 0 && (
+                                    <button
+                                      onClick={() => {
+                                        const rel = tableRelations.find(r => 
+                                          (r.direction === 'outgoing' && r.target_table === join.table) ||
+                                          (r.direction === 'incoming' && r.source_table === join.table)
+                                        )
+                                        if (rel) applyRelation(index, rel)
+                                      }}
+                                      className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200"
+                                      title="Otomatik ilişki uygula"
+                                    >
+                                      <Link2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => removeJoin(index)}
+                                    className="p-1 text-red-600 hover:bg-red-50 rounded"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Visual representation */}
+                              {join.table && join.on_source && join.on_target && (
+                                <div className="mt-3 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                                  <span className="font-mono bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">
+                                    {primaryTable}.{join.on_source}
+                                  </span>
+                                  <ArrowRight className="w-4 h-4" />
+                                  <span className="font-mono bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">
+                                    {join.table}.{join.on_target}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Column Selection */}
+                  {primaryTable && (
+                    <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
+                      <h3 className="font-medium text-slate-900 dark:text-white flex items-center gap-2 mb-4">
+                        <Columns className="w-5 h-5" />
+                        Kolon Seçimi ({selectedColumns.length} seçili)
+                      </h3>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {/* Primary table columns */}
+                        <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
+                          <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1">
+                            <Table className="w-4 h-4" />
+                            {getTableDisplayName(primaryTable)}
+                            <span className="text-xs text-slate-400">(Ana)</span>
+                          </h4>
+                          <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {(availableColumns[primaryTable] || []).slice(0, 20).map(col => (
+                              <label
+                                key={col.column_name}
+                                className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 p-1 rounded"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isColumnSelected(primaryTable, col.column_name)}
+                                  onChange={() => toggleColumn(primaryTable, col)}
+                                  className="rounded text-indigo-600"
+                                />
+                                <span className="text-slate-700 dark:text-slate-300">{col.display_name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Joined table columns */}
+                        {joins.filter(j => j.table).map((join, index) => (
+                          <div
+                            key={index}
+                            className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-slate-200 dark:border-slate-700"
+                          >
+                            <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1">
+                              <Link2 className="w-4 h-4" />
+                              {getTableDisplayName(join.table)}
+                            </h4>
+                            <div className="space-y-1 max-h-48 overflow-y-auto">
+                              {(availableColumns[join.table] || []).slice(0, 20).map(col => (
+                                <label
+                                  key={col.column_name}
+                                  className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 p-1 rounded"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isColumnSelected(join.table, col.column_name)}
+                                    onChange={() => toggleColumn(join.table, col, join.alias)}
+                                    className="rounded text-indigo-600"
+                                  />
+                                  <span className="text-slate-700 dark:text-slate-300">{col.display_name}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Default checkbox */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="is_default"
+                      checked={isDefault}
+                      onChange={(e) => setIsDefault(e.target.checked)}
+                      className="rounded text-indigo-600"
+                    />
+                    <label htmlFor="is_default" className="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                      <Star className="w-4 h-4 text-yellow-500" />
+                      Varsayılan view olarak ayarla
+                    </label>
+                  </div>
+                </div>
+
+                {/* Builder Footer */}
+                <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
+                  <button
+                    onClick={() => setShowBuilder(false)}
+                    className="px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+                  >
+                    İptal
+                  </button>
+                  <button
+                    onClick={saveView}
+                    disabled={!viewName || !primaryTable || selectedColumns.length === 0}
+                    className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg font-medium hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    <Save className="w-5 h-5" />
+                    {editingView ? 'Güncelle' : 'Oluştur'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Preview Modal */}
+          {previewView && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+                <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Eye className="w-6 h-6" />
+                    {previewView.view_name} - Önizleme
+                  </h2>
+                  <button
+                    onClick={() => setPreviewView(null)}
+                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-auto p-6">
+                  {previewLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <RefreshCw className="w-8 h-8 animate-spin text-indigo-600" />
+                    </div>
+                  ) : previewData ? (
+                    <div>
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                        Toplam {previewData.total} kayıt (ilk 20 gösteriliyor)
+                      </p>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-100 dark:bg-slate-700">
+                            <tr>
+                              {previewData.columns.map(col => (
+                                <th key={col} className="px-3 py-2 text-left font-medium text-slate-700 dark:text-slate-300">
+                                  {col}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                            {previewData.data.map((row, i) => (
+                              <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-900">
+                                {previewData.columns.map(col => (
+                                  <td key={col} className="px-3 py-2 text-slate-700 dark:text-slate-300">
+                                    {row[col] !== null ? String(row[col]).substring(0, 50) : '-'}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-center text-slate-500">Veri yüklenemedi</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Views List */}
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                      View Adı
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                      Ana Tablo
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                      Birleşimler
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                      Kolonlar
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                      Tip
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                      İşlemler
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                        <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
+                        Yükleniyor...
+                      </td>
+                    </tr>
+                  ) : views.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                        Henüz gelişmiş view oluşturulmamış.
+                      </td>
+                    </tr>
+                  ) : (
+                    views.map((view) => (
+                      <tr key={view.id} className="hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <Layers className="w-4 h-4 text-purple-500" />
+                            <div>
+                              <span className="text-sm font-medium text-slate-900 dark:text-white">
+                                {view.view_name}
+                              </span>
+                              {view.description && (
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                  {view.description}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 dark:text-slate-400">
+                          {getTableDisplayName(view.primary_table)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 rounded text-xs">
+                            <Link2 className="w-3 h-3" />
+                            {view.join_count || view.joins?.length || 0} tablo
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded text-xs">
+                            <Columns className="w-3 h-3" />
+                            {view.column_count || view.selected_columns?.length || 0} kolon
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {view.is_system ? (
+                            <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded text-xs">
+                              Sistem
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 rounded text-xs">
+                              Özel
+                            </span>
+                          )}
+                          {view.is_default && (
+                            <Star className="w-4 h-4 text-yellow-500 fill-yellow-500 inline ml-2" />
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => previewViewData(view)}
+                              className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-950 rounded-lg transition-colors"
+                              title="Önizleme"
+                            >
+                              <Play className="w-4 h-4" />
+                            </button>
+                            {!view.is_system && (
+                              <>
+                                <button
+                                  onClick={() => startEditView(view)}
+                                  className="p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950 rounded-lg transition-colors"
+                                  title="Düzenle"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => deleteView(view.id)}
+                                  className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg transition-colors"
+                                  title="Sil"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    </ProtectedRoute>
+  )
+}

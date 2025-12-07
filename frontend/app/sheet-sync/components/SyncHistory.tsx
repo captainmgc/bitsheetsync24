@@ -16,11 +16,11 @@ interface SyncHistoryProps {
 type StatusFilter = 'all' | 'pending' | 'syncing' | 'completed' | 'failed' | 'retrying';
 
 const STATUS_CONFIG = {
-  pending: { label: 'Pending', icon: '⏳', bgColor: 'bg-amber-100', textColor: 'text-amber-800' },
-  syncing: { label: 'Syncing', icon: '🔄', bgColor: 'bg-blue-100', textColor: 'text-blue-800' },
-  completed: { label: 'Completed', icon: '✓', bgColor: 'bg-green-100', textColor: 'text-green-800' },
-  failed: { label: 'Failed', icon: '✗', bgColor: 'bg-red-100', textColor: 'text-red-800' },
-  retrying: { label: 'Retrying', icon: '🔁', bgColor: 'bg-orange-100', textColor: 'text-orange-800' },
+  pending: { label: 'Bekliyor', icon: '⏳', bgColor: 'bg-amber-100', textColor: 'text-amber-800' },
+  syncing: { label: 'Senkronize Ediliyor', icon: '🔄', bgColor: 'bg-blue-100', textColor: 'text-blue-800' },
+  completed: { label: 'Tamamlandı', icon: '✓', bgColor: 'bg-green-100', textColor: 'text-green-800' },
+  failed: { label: 'Başarısız', icon: '✗', bgColor: 'bg-red-100', textColor: 'text-red-800' },
+  retrying: { label: 'Yeniden Deneniyor', icon: '🔁', bgColor: 'bg-orange-100', textColor: 'text-orange-800' },
 };
 
 export default function SyncHistory({ configId, onLoadHistory }: SyncHistoryProps) {
@@ -47,7 +47,7 @@ export default function SyncHistory({ configId, onLoadHistory }: SyncHistoryProp
   }, [configId, statusFilter, autoRefresh, onLoadHistory]);
 
   const handleRetry = async () => {
-    if (!confirm('Retry all failed syncs?')) return;
+    if (!confirm('Tüm başarısız senkronizasyonları yeniden denemek istiyor musunuz?')) return;
     await retryFailedSyncs(configId);
   };
 
@@ -58,9 +58,9 @@ export default function SyncHistory({ configId, onLoadHistory }: SyncHistoryProp
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-lg font-semibold text-slate-900">Sync History</h3>
+          <h3 className="text-lg font-semibold text-slate-900">Senkronizasyon Geçmişi</h3>
           <p className="text-sm text-slate-600 mt-1">
-            {syncLogs.length} sync operations • {failedCount} failed
+            {syncLogs.length} senkronizasyon işlemi • {failedCount} başarısız
           </p>
         </div>
 
@@ -72,9 +72,9 @@ export default function SyncHistory({ configId, onLoadHistory }: SyncHistoryProp
                 ? 'bg-blue-100 text-blue-800 hover:bg-blue-200'
                 : 'bg-slate-100 text-slate-800 hover:bg-slate-200'
             }`}
-            title={autoRefresh ? 'Click to stop auto-refresh' : 'Click to start auto-refresh'}
+            title={autoRefresh ? 'Otomatik yenilemeyi durdurmak için tıklayın' : 'Otomatik yenilemeyi başlatmak için tıklayın'}
           >
-            {autoRefresh ? '🔄 Auto-Refresh' : '⏸ Auto-Refresh'}
+            {autoRefresh ? '🔄 Otomatik Yenile' : '⏸ Otomatik Yenile'}
           </button>
 
           {failedCount > 0 && (
@@ -82,7 +82,7 @@ export default function SyncHistory({ configId, onLoadHistory }: SyncHistoryProp
               onClick={handleRetry}
               className="px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm font-medium transition"
             >
-              🔁 Retry {failedCount} Failed
+              🔁 {failedCount} Başarısızı Yeniden Dene
             </button>
           )}
         </div>
@@ -100,7 +100,7 @@ export default function SyncHistory({ configId, onLoadHistory }: SyncHistoryProp
                 : 'bg-slate-100 text-slate-900 hover:bg-slate-200'
             }`}
           >
-            {status === 'all' ? 'All' : STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.label}
+            {status === 'all' ? 'Tümü' : STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]?.label}
           </button>
         ))}
       </div>
@@ -120,19 +120,19 @@ export default function SyncHistory({ configId, onLoadHistory }: SyncHistoryProp
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="text-left px-4 py-3 font-semibold text-slate-900 text-sm">
-                    Status
+                    Durum
                   </th>
                   <th className="text-left px-4 py-3 font-semibold text-slate-900 text-sm">
-                    Entity / Row
+                    Kayıt / Satır
                   </th>
                   <th className="text-left px-4 py-3 font-semibold text-slate-900 text-sm">
-                    Changes
+                    Değişiklikler
                   </th>
                   <th className="text-left px-4 py-3 font-semibold text-slate-900 text-sm">
-                    Timestamp
+                    Zaman
                   </th>
                   <th className="text-left px-4 py-3 font-semibold text-slate-900 text-sm">
-                    Details
+                    Detaylar
                   </th>
                 </tr>
               </thead>
@@ -157,13 +157,13 @@ export default function SyncHistory({ configId, onLoadHistory }: SyncHistoryProp
                       {/* Entity / Row */}
                       <td className="px-4 py-3">
                         <div className="font-medium text-slate-900">#{log.entity_id}</div>
-                        <div className="text-xs text-slate-600">Row {log.row_id}</div>
+                        <div className="text-xs text-slate-600">Satır {log.row_id}</div>
                       </td>
 
                       {/* Changes Count */}
                       <td className="px-4 py-3">
                         <span className="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
-                          {changeCount} field{changeCount !== 1 ? 's' : ''}
+                          {changeCount} alan
                         </span>
                       </td>
 
@@ -180,7 +180,7 @@ export default function SyncHistory({ configId, onLoadHistory }: SyncHistoryProp
                         {log.error ? (
                           <details className="cursor-pointer">
                             <summary className="text-red-600 text-sm font-medium hover:text-red-700">
-                              View Error
+                              Hatayı Gör
                             </summary>
                             <pre className="mt-2 p-2 bg-red-50 rounded text-xs text-red-800 overflow-x-auto">
                               {log.error}
@@ -189,7 +189,7 @@ export default function SyncHistory({ configId, onLoadHistory }: SyncHistoryProp
                         ) : (
                           <details className="cursor-pointer">
                             <summary className="text-blue-600 text-sm font-medium hover:text-blue-700">
-                              View Changes
+                              Değişiklikleri Gör
                             </summary>
                             <pre className="mt-2 p-2 bg-blue-50 rounded text-xs text-blue-800 overflow-x-auto">
                               {JSON.stringify(log.changes, null, 2)}
@@ -224,11 +224,11 @@ export default function SyncHistory({ configId, onLoadHistory }: SyncHistoryProp
           </svg>
           <p className="text-slate-600 font-medium">
             {statusFilter === 'all'
-              ? 'No sync operations yet'
-              : `No ${statusFilter} operations`}
+              ? 'Henüz senkronizasyon işlemi yok'
+              : `${STATUS_CONFIG[statusFilter as keyof typeof STATUS_CONFIG]?.label} işlem yok`}
           </p>
           <p className="text-sm text-slate-600 mt-1">
-            Changes to your Google Sheet will appear here
+            Google Sheet'inizdeki değişiklikler burada görünecek
           </p>
         </div>
       )}
@@ -237,10 +237,10 @@ export default function SyncHistory({ configId, onLoadHistory }: SyncHistoryProp
       {syncLogs.length > 0 && (
         <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: 'Completed', count: syncLogs.filter((l) => l.status === 'completed').length },
-            { label: 'Failed', count: syncLogs.filter((l) => l.status === 'failed').length },
-            { label: 'Pending', count: syncLogs.filter((l) => l.status === 'pending').length },
-            { label: 'Retrying', count: syncLogs.filter((l) => l.status === 'retrying').length },
+            { label: 'Tamamlanan', count: syncLogs.filter((l) => l.status === 'completed').length },
+            { label: 'Başarısız', count: syncLogs.filter((l) => l.status === 'failed').length },
+            { label: 'Bekleyen', count: syncLogs.filter((l) => l.status === 'pending').length },
+            { label: 'Yeniden Denenen', count: syncLogs.filter((l) => l.status === 'retrying').length },
           ].map((stat) => (
             <div key={stat.label} className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-center">
               <div className="text-2xl font-bold text-slate-900">{stat.count}</div>

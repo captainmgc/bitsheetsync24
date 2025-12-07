@@ -14,6 +14,16 @@ class ExportStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    
+    @classmethod
+    def _missing_(cls, value):
+        """Handle case-insensitive enum values"""
+        if isinstance(value, str):
+            lower_value = value.lower()
+            for member in cls:
+                if member.value == lower_value:
+                    return member
+        return None
 
 
 class ExportType(str, Enum):
@@ -22,6 +32,7 @@ class ExportType(str, Enum):
     INCREMENTAL = "incremental"
     DATE_RANGE = "date_range"
     CUSTOM_VIEW = "custom_view"
+    GOOGLE_SHEETS = "google_sheets"
 
 
 class DateRangeFilter(BaseModel):
@@ -76,14 +87,14 @@ class ExportConfigResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
     id: int
-    export_type: ExportType
+    export_type: Optional[ExportType] = None
     entity_name: str
-    status: ExportStatus
+    status: Optional[ExportStatus] = None
     
     # Progress
     total_records: int = 0
     processed_records: int = 0
-    failed_records: int = 0
+    failed_records: Optional[int] = 0
     
     # Timing
     started_at: Optional[datetime] = None
@@ -94,7 +105,7 @@ class ExportConfigResponse(BaseModel):
     sheet_url: Optional[str] = None
     error_message: Optional[str] = None
     
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
 
 class ExportProgressUpdate(BaseModel):

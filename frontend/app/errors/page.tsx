@@ -71,129 +71,120 @@ export default function ErrorDashboardPage() {
 
   async function fetchErrors() {
     try {
-      // Mock error data
-      const mockErrors: ErrorLog[] = [
-        {
-          id: 1,
-          error_type: 'API_ERROR',
-          severity: 'high',
-          source: 'bitrix_sync',
-          message: 'Bitrix24 API connection timeout after 30 seconds',
-          stack_trace: 'ConnectionError: Connection timed out\n  at BitrixClient.call (client.py:45)\n  at sync_deals (deals.py:120)',
-          entity_type: 'deals',
-          entity_id: null,
-          created_at: new Date(Date.now() - 1800000).toISOString(),
-          resolved: false,
-          resolved_at: null,
-          retry_count: 2,
-          max_retries: 3
-        },
-        {
-          id: 2,
-          error_type: 'VALIDATION_ERROR',
-          severity: 'medium',
-          source: 'sheets_export',
-          message: 'Invalid date format in field DATE_CREATE',
-          stack_trace: null,
-          entity_type: 'contacts',
-          entity_id: '12345',
-          created_at: new Date(Date.now() - 3600000).toISOString(),
-          resolved: true,
-          resolved_at: new Date(Date.now() - 3000000).toISOString(),
-          retry_count: 1,
-          max_retries: 3
-        },
-        {
-          id: 3,
-          error_type: 'DATABASE_ERROR',
-          severity: 'critical',
-          source: 'postgres',
-          message: 'Unique constraint violation on deals.id',
-          stack_trace: 'psycopg2.errors.UniqueViolation: duplicate key value violates unique constraint "deals_pkey"',
-          entity_type: 'deals',
-          entity_id: '98765',
-          created_at: new Date(Date.now() - 7200000).toISOString(),
-          resolved: false,
-          resolved_at: null,
-          retry_count: 0,
-          max_retries: 3
-        },
-        {
-          id: 4,
-          error_type: 'RATE_LIMIT',
-          severity: 'low',
-          source: 'google_sheets',
-          message: 'Rate limit exceeded, waiting 60 seconds',
-          stack_trace: null,
-          entity_type: null,
-          entity_id: null,
-          created_at: new Date(Date.now() - 10800000).toISOString(),
-          resolved: true,
-          resolved_at: new Date(Date.now() - 10740000).toISOString(),
-          retry_count: 1,
-          max_retries: 3
-        },
-        {
-          id: 5,
-          error_type: 'NETWORK_ERROR',
-          severity: 'medium',
-          source: 'webhook',
-          message: 'Failed to send webhook notification',
-          stack_trace: 'requests.exceptions.ConnectionError: Max retries exceeded',
-          entity_type: 'activities',
-          entity_id: '54321',
-          created_at: new Date(Date.now() - 14400000).toISOString(),
-          resolved: false,
-          resolved_at: null,
-          retry_count: 3,
-          max_retries: 3
-        }
-      ]
-
-      // Apply filters
-      let filtered = mockErrors
+      setLoading(true)
+      const params = new URLSearchParams({
+        page: page.toString(),
+        page_size: '20'
+      })
+      
       if (severityFilter) {
-        filtered = filtered.filter(e => e.severity === severityFilter)
+        params.append('severity', severityFilter)
       }
       if (resolvedFilter === 'resolved') {
-        filtered = filtered.filter(e => e.resolved)
+        params.append('resolved', 'true')
       } else if (resolvedFilter === 'unresolved') {
-        filtered = filtered.filter(e => !e.resolved)
+        params.append('resolved', 'false')
       }
-
-      setErrors(filtered)
-      setTotalPages(1)
+      
+      const response = await fetch(apiUrl(`/api/v1/errors/?${params.toString()}`))
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch errors')
+      }
+      
+      const data = await response.json()
+      setErrors(data.errors || [])
+      setTotalPages(data.total_pages || 1)
       setLoading(false)
     } catch (err) {
       console.error('Failed to fetch errors:', err)
+      setErrors([])
       setLoading(false)
     }
   }
 
   async function fetchStats() {
-    setStats({
-      total_errors: 156,
-      unresolved_errors: 23,
-      critical_errors: 3,
-      today_errors: 7,
-      error_rate: 0.8
-    })
+    try {
+      const response = await fetch(apiUrl('/api/v1/errors/stats'))
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch stats')
+      }
+      
+      const data = await response.json()
+      setStats(data)
+    } catch (err) {
+      console.error('Failed to fetch stats:', err)
+      setStats({
+        total_errors: 0,
+        unresolved_errors: 0,
+        critical_errors: 0,
+        today_errors: 0,
+        error_rate: 0
+      })
+    }
   }
 
   async function retryError(errorId: number) {
     setRetrying(errorId)
     try {
-      // Simulate retry
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      const response = await fetch(apiUrl(`/api/v1/errors/${errorId}/retry`), {
+        method: 'POST'
+      })
       
-      // Mark as resolved in UI
-      setErrors(prev => prev.map(e => 
-        e.id === errorId ? { ...e, resolved: true, resolved_at: new Date().toISOString() } : e
-      ))
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.detail || 'Retry failed')
+      }
+      
+      // Refresh errors list
+      await fetchErrors()
+      await fetchStats()
     } catch (err) {
       console.error('Retry failed:', err)
+      alert(err instanceof Error ? err.message : 'Yeniden deneme başarısız')
     } finally {
       setRetrying(null)
+    }
+  }
+
+  async function resolveError(errorId: number) {
+    try {
+      const response = await fetch(apiUrl(`/api/v1/errors/${errorId}/resolve`), {
+        method: 'POST'
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to resolve error')
+      }
+      
+      // Refresh errors list
+      await fetchErrors()
+      await fetchStats()
+    } catch (err) {
+      console.error('Resolve failed:', err)
+    }
+  }
+
+  async function deleteError(errorId: number) {
+    if (!confirm('Bu hata kaydını silmek istediğinizden emin misiniz?')) {
+      return
+    }
+    
+    try {
+      const response = await fetch(apiUrl(`/api/v1/errors/${errorId}`), {
+        method: 'DELETE'
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete error')
+      }
+      
+      // Refresh errors list
+      await fetchErrors()
+      await fetchStats()
+    } catch (err) {
+      console.error('Delete failed:', err)
     }
   }
 

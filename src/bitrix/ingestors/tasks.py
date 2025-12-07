@@ -7,15 +7,23 @@ from sqlalchemy.sql import text
 
 logger = logging.getLogger(__name__)
 
+# All fields needed for tasks sync
 SELECT_FIELDS = [
-    "ID","TITLE","STATUS","CREATED_DATE","CHANGED_DATE","RESPONSIBLE_ID","CREATED_BY",
-    "GROUP_ID","PARENT_ID","DEADLINE","CLOSED_DATE"
+    "ID", "TITLE", "DESCRIPTION", "STATUS", "PRIORITY",
+    "RESPONSIBLE_ID", "CREATED_BY", "CHANGED_BY",
+    "DEADLINE", "START_DATE_PLAN", "END_DATE_PLAN",
+    "CREATED_DATE", "CHANGED_DATE", "CLOSED_DATE",
+    "DURATION_PLAN", "DURATION_FACT", "TIME_ESTIMATE", "TIME_SPENT_IN_LOGS",
+    "PARENT_ID", "GROUP_ID", "TAGS",
+    "ALLOW_CHANGE_DEADLINE", "ALLOW_TIME_TRACKING", "MATCH_WORK_TIME",
+    "COMMENTS_COUNT", "NEW_COMMENTS_COUNT"
 ]
 
 def full_sync(client: BitrixClient, limit: Optional[int] = None) -> int:
     count = 0
     # tasks.task.list returns nested {result:{tasks:[...]}}; client handles it
-    for item in client.list_paginated("tasks.task.list", order={"ID": "ASC"}, include_total=True):
+    # Use select=["*"] to get all fields including STATUS
+    for item in client.list_paginated("tasks.task.list", select=["*"], order={"ID": "ASC"}, include_total=True):
         # Normalize lowercase keys to uppercase for consistency
         item = _normalize_task_fields(item)
         
@@ -54,6 +62,7 @@ def incremental_sync(client: BitrixClient, since: Optional[datetime] = None, lim
     count = 0
     for item in client.list_paginated(
         "tasks.task.list",
+        select=["*"],  # Get all fields including STATUS
         order={"ID": "ASC"},
         filter=filter_params,
         include_total=True
@@ -72,30 +81,44 @@ def incremental_sync(client: BitrixClient, since: Optional[datetime] = None, lim
 
 
 def _normalize_task_fields(item: dict) -> dict:
-    """Normalize task field names from camelCase to UPPERCASE"""
-    # ID
-    if 'id' in item and 'ID' not in item:
-        item['ID'] = item['id']
+    """Normalize task field names from camelCase to UPPERCASE for Bitrix24 tasks API"""
+    # Map all camelCase fields to UPPERCASE
+    field_mapping = {
+        'id': 'ID',
+        'title': 'TITLE',
+        'description': 'DESCRIPTION',
+        'status': 'STATUS',
+        'priority': 'PRIORITY',
+        'responsibleId': 'RESPONSIBLE_ID',
+        'createdBy': 'CREATED_BY',
+        'changedBy': 'CHANGED_BY',
+        'deadline': 'DEADLINE',
+        'startDatePlan': 'START_DATE_PLAN',
+        'endDatePlan': 'END_DATE_PLAN',
+        'createdDate': 'CREATED_DATE',
+        'changedDate': 'CHANGED_DATE',
+        'closedDate': 'CLOSED_DATE',
+        'durationPlan': 'DURATION_PLAN',
+        'durationFact': 'DURATION_FACT',
+        'timeEstimate': 'TIME_ESTIMATE',
+        'timeSpentInLogs': 'TIME_SPENT_IN_LOGS',
+        'parentId': 'PARENT_ID',
+        'groupId': 'GROUP_ID',
+        'tags': 'TAGS',
+        'allowChangeDeadline': 'ALLOW_CHANGE_DEADLINE',
+        'allowTimeTracking': 'ALLOW_TIME_TRACKING',
+        'matchWorkTime': 'MATCH_WORK_TIME',
+        'commentsCount': 'COMMENTS_COUNT',
+        'newCommentsCount': 'NEW_COMMENTS_COUNT',
+    }
     
-    # Title
-    if 'title' in item and 'TITLE' not in item:
-        item['TITLE'] = item['title']
+    for camel, upper in field_mapping.items():
+        if camel in item and upper not in item:
+            item[upper] = item[camel]
     
-    # Changed date (for DATE_MODIFY compatibility)
-    if 'changedDate' in item:
-        item['DATE_MODIFY'] = item['changedDate']
-        item['CHANGED_DATE'] = item['changedDate']
-    elif 'changed_date' in item:
-        item['DATE_MODIFY'] = item['changed_date']
-        item['CHANGED_DATE'] = item['changed_date']
-    
-    # Created date
-    if 'createdDate' in item and 'CREATED_DATE' not in item:
-        item['CREATED_DATE'] = item['createdDate']
-    
-    # Status
-    if 'status' in item and 'STATUS' not in item:
-        item['STATUS'] = item['status']
+    # Also handle DATE_MODIFY compatibility
+    if 'changedDate' in item or 'CHANGED_DATE' in item:
+        item['DATE_MODIFY'] = item.get('CHANGED_DATE') or item.get('changedDate')
     
     return item
 

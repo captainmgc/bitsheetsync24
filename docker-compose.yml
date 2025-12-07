@@ -63,6 +63,12 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - BITRIX_WEBHOOK_URL=${BITRIX_WEBHOOK_URL}
       - FRONTEND_URL=${FRONTEND_URL:-https://etablo.japonkonutlari.com}
+      # AI Configuration
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - DEFAULT_AI_PROVIDER=${DEFAULT_AI_PROVIDER:-openrouter}
+      - DEFAULT_AI_MODEL=${DEFAULT_AI_MODEL:-x-ai/grok-3-fast}
     volumes:
       - ./logs:/app/logs
       - ./google_credentials.json:/app/google_credentials.json:ro
@@ -97,6 +103,7 @@ services:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://etablo.japonkonutlari.com/api}
       - NEXTAUTH_URL=${NEXTAUTH_URL:-https://etablo.japonkonutlari.com}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - AUTH_SECRET=${NEXTAUTH_SECRET}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
     depends_on:

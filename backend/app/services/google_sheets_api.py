@@ -90,13 +90,17 @@ class GoogleSheetsService:
             }
             
         except httpx.HTTPStatusError as e:
+            error_text = e.response.text
             logger.error("create_spreadsheet_error",
                         status=e.response.status_code,
-                        error=e.response.text)
-            raise Exception(f"Failed to create spreadsheet: {e.response.text}")
+                        error=error_text)
+            if e.response.status_code == 401:
+                raise Exception(f"401: Invalid or expired Google token")
+            raise Exception(f"Failed to create spreadsheet: {error_text}")
         except Exception as e:
-            logger.error("create_spreadsheet_exception", error=str(e))
-            raise
+            error_msg = str(e) if str(e) else "Unknown error occurred"
+            logger.error("create_spreadsheet_exception", error=error_msg, error_type=type(e).__name__)
+            raise Exception(error_msg)
     
     async def append_values(
         self,
@@ -152,6 +156,59 @@ class GoogleSheetsService:
             raise Exception(f"Failed to append values: {e.response.text}")
         except Exception as e:
             logger.error("append_values_exception", error=str(e))
+            raise
+    
+    async def get_values(
+        self,
+        spreadsheet_id: str,
+        range_name: str,
+        major_dimension: str = "ROWS"
+    ) -> Dict[str, Any]:
+        """
+        Read values from a sheet
+        
+        Args:
+            spreadsheet_id: The spreadsheet ID
+            range_name: A1 notation (e.g., "Sheet1!A1:Z100")
+            major_dimension: "ROWS" or "COLUMNS"
+            
+        Returns:
+            {
+                "range": "Sheet1!A1:Z100",
+                "values": [["value1", "value2"], ...]
+            }
+        """
+        try:
+            url = f"{self.BASE_URL}/{spreadsheet_id}/values/{range_name}"
+            
+            params = {
+                "majorDimension": major_dimension,
+                "valueRenderOption": "FORMATTED_VALUE",
+                "dateTimeRenderOption": "FORMATTED_STRING"
+            }
+            
+            response = await self.client.get(
+                url,
+                headers=self.headers,
+                params=params
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            logger.info("values_read",
+                       spreadsheet_id=spreadsheet_id,
+                       range=range_name,
+                       rows=len(result.get("values", [])))
+            
+            return result
+            
+        except httpx.HTTPStatusError as e:
+            logger.error("get_values_error",
+                        status=e.response.status_code,
+                        error=e.response.text)
+            raise Exception(f"Failed to read values: {e.response.text}")
+        except Exception as e:
+            logger.error("get_values_exception", error=str(e))
             raise
     
     async def update_values(

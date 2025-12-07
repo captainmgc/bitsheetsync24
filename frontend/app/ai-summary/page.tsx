@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import ProtectedRoute from '@/components/auth/ProtectedRoute'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -34,6 +36,7 @@ interface Deal {
   id: number
   title: string
   stage_id: string | null
+  stage_name: string | null
   opportunity: string | null
   currency: string | null
   contact_name: string | null
@@ -50,10 +53,12 @@ interface DealDetails {
   contact: any
   company: any
   responsible_name: string | null
+  all_contact_deals: any[]
   stats: {
     activities_count: number
     tasks_count: number
     task_comments_count: number
+    total_deals_count: number
   }
   recent_activities: any[]
   recent_tasks: any[]
@@ -80,6 +85,13 @@ interface Summary {
 
 interface Stage {
   stage_id: string
+  stage_name: string
+  deal_count: number
+}
+
+interface Category {
+  category_id: string
+  category_name: string
   deal_count: number
 }
 
@@ -89,6 +101,7 @@ export default function AISummaryPage() {
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null)
   const [dealDetails, setDealDetails] = useState<DealDetails | null>(null)
   const [providers, setProviders] = useState<AIProvider[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [stages, setStages] = useState<Stage[]>([])
   const [summaryHistory, setSummaryHistory] = useState<Summary[]>([])
   const [generatedSummary, setGeneratedSummary] = useState<Summary | null>(null)
@@ -98,9 +111,11 @@ export default function AISummaryPage() {
   const [generating, setGenerating] = useState(false)
   const [writingToBitrix, setWritingToBitrix] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string>('')
   const [selectedStage, setSelectedStage] = useState<string>('')
-  const [selectedProvider, setSelectedProvider] = useState<string>('openai')
-  const [selectedModel, setSelectedModel] = useState<string>('gpt-4o-mini')
+  const [dealStatus, setDealStatus] = useState<string>('active') // active, won, lost, all
+  const [selectedProvider, setSelectedProvider] = useState<string>('openrouter')
+  const [selectedModel, setSelectedModel] = useState<string>('x-ai/grok-4.1-fast:free')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [activeTab, setActiveTab] = useState<'generate' | 'history'>('generate')
@@ -111,6 +126,7 @@ export default function AISummaryPage() {
     Promise.all([
       fetchDeals(),
       fetchProviders(),
+      fetchCategories(),
       fetchStages(),
       fetchHistory()
     ]).finally(() => setLoading(false))
@@ -119,7 +135,19 @@ export default function AISummaryPage() {
   // Fetch deals when filters change
   useEffect(() => {
     fetchDeals()
-  }, [page, searchTerm, selectedStage])
+  }, [page, searchTerm, selectedCategory, selectedStage, dealStatus])
+
+  // Fetch categories and stages when status changes
+  useEffect(() => {
+    fetchCategories()
+    fetchStages()
+  }, [dealStatus])
+
+  // Fetch stages when category changes
+  useEffect(() => {
+    fetchStages()
+    setSelectedStage('') // Reset stage when category changes
+  }, [selectedCategory])
 
   // Fetch deal details when selection changes
   useEffect(() => {
@@ -134,7 +162,9 @@ export default function AISummaryPage() {
       const params = new URLSearchParams({
         page: page.toString(),
         page_size: '15',
+        status: dealStatus,
         ...(searchTerm && { search: searchTerm }),
+        ...(selectedCategory && { category_id: selectedCategory }),
         ...(selectedStage && { stage_id: selectedStage })
       })
       
@@ -175,9 +205,23 @@ export default function AISummaryPage() {
     }
   }
 
+  async function fetchCategories() {
+    try {
+      const res = await fetch(apiUrl(`/api/v1/ai-summary/categories?status=${dealStatus}`))
+      const data = await res.json()
+      setCategories(data)
+    } catch (err) {
+      console.error('Failed to fetch categories:', err)
+    }
+  }
+
   async function fetchStages() {
     try {
-      const res = await fetch(apiUrl('/api/v1/ai-summary/stages'))
+      const params = new URLSearchParams({
+        status: dealStatus,
+        ...(selectedCategory && { category_id: selectedCategory })
+      })
+      const res = await fetch(apiUrl(`/api/v1/ai-summary/stages?${params}`))
       const data = await res.json()
       setStages(data)
     } catch (err) {
@@ -277,9 +321,11 @@ export default function AISummaryPage() {
     }
   }
 
-  function getStageName(stageId: string | null) {
+  function getStageName(stageId: string | null, stageName?: string | null) {
+    // Eğer backend'den stage_name geldiyse onu kullan
+    if (stageName) return stageName
     if (!stageId) return 'Belirsiz'
-    // Simple stage mapping
+    // Fallback: basit aşama eşleme
     const stageMap: Record<string, string> = {
       'NEW': 'Yeni',
       'PREPARATION': 'Hazırlık',
@@ -380,6 +426,31 @@ export default function AISummaryPage() {
                           className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                         />
                       </div>
+                      {/* Status Filter */}
+                      <select
+                        value={dealStatus}
+                        onChange={(e) => { setDealStatus(e.target.value); setPage(1); setSelectedCategory(''); setSelectedStage(''); }}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500 bg-purple-50 font-medium"
+                      >
+                        <option value="active">🟢 Aktif Anlaşmalar</option>
+                        <option value="won">🏆 Kazanılan Anlaşmalar</option>
+                        <option value="lost">❌ Kaybedilen Anlaşmalar</option>
+                        <option value="all">📋 Tüm Anlaşmalar</option>
+                      </select>
+                      {/* Category Filter */}
+                      <select
+                        value={selectedCategory}
+                        onChange={(e) => { setSelectedCategory(e.target.value); setPage(1); }}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 bg-blue-50 font-medium"
+                      >
+                        <option value="">📂 Tüm Kategoriler</option>
+                        {categories.map(cat => (
+                          <option key={cat.category_id} value={cat.category_id}>
+                            {cat.category_name} ({cat.deal_count})
+                          </option>
+                        ))}
+                      </select>
+                      {/* Stage Filter */}
                       <select
                         value={selectedStage}
                         onChange={(e) => setSelectedStage(e.target.value)}
@@ -388,7 +459,7 @@ export default function AISummaryPage() {
                         <option value="">Tüm Aşamalar</option>
                         {stages.map(stage => (
                           <option key={stage.stage_id} value={stage.stage_id}>
-                            {getStageName(stage.stage_id)} ({stage.deal_count})
+                            {getStageName(stage.stage_id, stage.stage_name)} ({stage.deal_count})
                           </option>
                         ))}
                       </select>
@@ -416,7 +487,7 @@ export default function AISummaryPage() {
                               </div>
                               <div className="flex items-center gap-2 mt-2">
                                 <Badge variant="outline" className="text-xs">
-                                  {getStageName(deal.stage_id)}
+                                  {getStageName(deal.stage_id, deal.stage_name)}
                                 </Badge>
                                 {deal.has_summary && (
                                   <Badge className="bg-green-100 text-green-700 text-xs">
@@ -468,7 +539,7 @@ export default function AISummaryPage() {
                         <div className="flex items-center justify-between">
                           <CardTitle>{selectedDeal.title || `Anlaşma #${selectedDeal.id}`}</CardTitle>
                           <Badge className="bg-purple-100 text-purple-700">
-                            {getStageName(selectedDeal.stage_id)}
+                            {getStageName(selectedDeal.stage_id, selectedDeal.stage_name)}
                           </Badge>
                         </div>
                       </CardHeader>
@@ -509,24 +580,42 @@ export default function AISummaryPage() {
 
                         {/* Stats */}
                         {dealDetails && (
-                          <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t">
-                            <div className="text-center">
-                              <div className="text-2xl font-bold text-blue-600">
-                                {dealDetails.stats.activities_count}
+                          <div className="mt-4 pt-4 border-t">
+                            {/* Contact Type Badge */}
+                            {dealDetails.contact?.type_name && (
+                              <div className="mb-4 flex items-center gap-2">
+                                <span className="text-sm text-slate-500">Kişi Türü:</span>
+                                <Badge className="bg-indigo-100 text-indigo-700">
+                                  {dealDetails.contact.type_name}
+                                </Badge>
                               </div>
-                              <div className="text-sm text-slate-500">Aktivite</div>
-                            </div>
-                            <div className="text-center">
-                              <div className="text-2xl font-bold text-purple-600">
-                                {dealDetails.stats.tasks_count}
+                            )}
+                            
+                            <div className="grid grid-cols-4 gap-4">
+                              <div className="text-center">
+                                <div className="text-2xl font-bold text-indigo-600">
+                                  {dealDetails.stats.total_deals_count || 1}
+                                </div>
+                                <div className="text-sm text-slate-500">Toplam Anlaşma</div>
                               </div>
-                              <div className="text-sm text-slate-500">Görev</div>
-                            </div>
-                            <div className="text-center">
-                              <div className="text-2xl font-bold text-green-600">
-                                {dealDetails.stats.task_comments_count}
+                              <div className="text-center">
+                                <div className="text-2xl font-bold text-blue-600">
+                                  {dealDetails.stats.activities_count}
+                                </div>
+                                <div className="text-sm text-slate-500">Aktivite</div>
                               </div>
-                              <div className="text-sm text-slate-500">Yorum</div>
+                              <div className="text-center">
+                                <div className="text-2xl font-bold text-purple-600">
+                                  {dealDetails.stats.tasks_count}
+                                </div>
+                                <div className="text-sm text-slate-500">Görev</div>
+                              </div>
+                              <div className="text-center">
+                                <div className="text-2xl font-bold text-green-600">
+                                  {dealDetails.stats.task_comments_count}
+                                </div>
+                                <div className="text-sm text-slate-500">Yorum</div>
+                              </div>
                             </div>
                           </div>
                         )}
@@ -631,10 +720,12 @@ export default function AISummaryPage() {
                           </div>
                         </CardHeader>
                         <CardContent>
-                          <div className="prose prose-sm max-w-none bg-white p-4 rounded-lg border">
-                            <pre className="whitespace-pre-wrap font-sans text-sm text-slate-700">
-                              {generatedSummary.summary}
-                            </pre>
+                          <div className="bg-white p-6 rounded-lg border max-h-[600px] overflow-y-auto">
+                            <div className="prose prose-slate prose-headings:text-slate-800 prose-h2:text-lg prose-h2:font-bold prose-h2:border-b prose-h2:pb-2 prose-h2:mb-4 prose-h3:text-base prose-h3:font-semibold prose-table:text-sm prose-td:px-2 prose-td:py-1 prose-th:px-2 prose-th:py-1 prose-th:bg-slate-100 prose-strong:text-slate-800 prose-ul:my-2 prose-li:my-0.5 max-w-none">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {generatedSummary.summary}
+                              </ReactMarkdown>
+                            </div>
                           </div>
 
                           <div className="flex items-center gap-3 mt-4">

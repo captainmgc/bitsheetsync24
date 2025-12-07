@@ -7,7 +7,7 @@ Supports: OpenAI GPT-4, Claude, or local Ollama models
 import httpx
 import json
 import os
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from datetime import datetime, timedelta
 from enum import Enum
 import structlog
@@ -18,6 +18,28 @@ from sqlalchemy import select, text
 from app.config import settings
 
 logger = structlog.get_logger()
+
+
+def format_date(value: Union[datetime, str, None], fmt: str = "%Y-%m-%d") -> str:
+    """Safely format a date value (datetime object or string) to string"""
+    if value is None:
+        return "Bilinmiyor"
+    if isinstance(value, datetime):
+        return value.strftime(fmt)
+    if isinstance(value, str):
+        return value[:10] if len(value) >= 10 else value
+    return str(value)
+
+
+def format_datetime(value: Union[datetime, str, None], fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """Safely format a datetime value to string with time"""
+    if value is None:
+        return "Bilinmiyor"
+    if isinstance(value, datetime):
+        return value.strftime(fmt)
+    if isinstance(value, str):
+        return value[:16] if len(value) >= 16 else value
+    return str(value)
 
 
 class AIProvider(str, Enum):
@@ -32,75 +54,146 @@ class AIProvider(str, Enum):
 class CustomerDataCollector:
     """
     Collects all customer-related data from PostgreSQL
-    for AI summarization
+    for AI summarization - Enhanced for comprehensive contact analysis
     """
     
     def __init__(self, db: AsyncSession):
         self.db = db
     
+    async def get_contact_type_name(self, type_id: str) -> str:
+        """Get human-readable contact type name from lookup_values"""
+        if not type_id:
+            return "Belirtilmemiş"
+        
+        query = text("""
+            SELECT name FROM bitrix.lookup_values 
+            WHERE entity_type = 'CONTACT_TYPE' AND status_id = :type_id
+            LIMIT 1
+        """)
+        result = await self.db.execute(query, {"type_id": type_id})
+        row = result.fetchone()
+        if row:
+            return row.name
+        return type_id  # Return ID if no name found
+    
+    async def get_stage_name(self, stage_id: str) -> str:
+        """Get human-readable stage name from v_deal_stages view"""
+        if not stage_id:
+            return "Belirtilmemiş"
+        
+        query = text("""
+            SELECT stage_name FROM bitrix.v_deal_stages 
+            WHERE stage_id = :stage_id
+            LIMIT 1
+        """)
+        result = await self.db.execute(query, {"stage_id": stage_id})
+        row = result.fetchone()
+        if row:
+            return row.stage_name
+        return stage_id  # Return ID if no name found
+    
+    async def get_category_name(self, category_id: str) -> str:
+        """Get human-readable category name"""
+        if not category_id:
+            return "Belirtilmemiş"
+        
+        query = text("""
+            SELECT name FROM bitrix.deal_categories 
+            WHERE bitrix_id = :category_id
+            LIMIT 1
+        """)
+        result = await self.db.execute(query, {"category_id": category_id})
+        row = result.fetchone()
+        if row:
+            return row.name
+        return f"Kategori {category_id}"
+    
     async def get_deal_details(self, deal_id: int) -> Optional[Dict[str, Any]]:
-        """Get deal information"""
+        """Get deal information with human-readable names"""
         query = text("""
             SELECT 
                 d.id,
-                d.data->>'TITLE' as title,
-                d.data->>'STAGE_ID' as stage_id,
-                d.data->>'OPPORTUNITY' as opportunity,
-                d.data->>'CURRENCY_ID' as currency,
-                d.data->>'DATE_CREATE' as date_create,
-                d.data->>'DATE_MODIFY' as date_modify,
-                d.data->>'ASSIGNED_BY_ID' as assigned_by_id,
-                d.data->>'CONTACT_ID' as contact_id,
-                d.data->>'COMPANY_ID' as company_id,
-                d.data->>'COMMENTS' as comments,
-                d.data->>'SOURCE_ID' as source_id,
-                d.data->>'SOURCE_DESCRIPTION' as source_description,
-                d.data as raw_data
+                d.title,
+                d.stage_id,
+                d.category_id,
+                d.opportunity,
+                d.currency_id as currency,
+                d.date_create,
+                d.date_modify,
+                d.assigned_by_id,
+                d.contact_id,
+                d.company_id,
+                d.comments,
+                d.source_id,
+                d.source_description,
+                d.original_data as raw_data
             FROM bitrix.deals d
             WHERE d.id = :deal_id
         """)
         result = await self.db.execute(query, {"deal_id": deal_id})
         row = result.fetchone()
         if row:
-            return dict(row._mapping)
+            deal_data = dict(row._mapping)
+            # Add human-readable names
+            deal_data['stage_name'] = await self.get_stage_name(deal_data.get('stage_id'))
+            deal_data['category_name'] = await self.get_category_name(deal_data.get('category_id'))
+            return deal_data
         return None
     
-    async def get_contact_details(self, contact_id: int) -> Optional[Dict[str, Any]]:
-        """Get contact information"""
+    async def get_contact_details(self, contact_id) -> Optional[Dict[str, Any]]:
+        """Get contact information with human-readable type name"""
+        if contact_id is None:
+            return None
+        contact_id_str = str(contact_id)
         query = text("""
             SELECT 
                 c.id,
-                c.data->>'NAME' as name,
-                c.data->>'LAST_NAME' as last_name,
-                c.data->>'PHONE' as phone,
-                c.data->>'EMAIL' as email,
-                c.data->>'POST' as post,
-                c.data->>'COMMENTS' as comments,
-                c.data->>'DATE_CREATE' as date_create
+                c.bitrix_id,
+                c.name,
+                c.second_name,
+                c.last_name,
+                c.full_name,
+                c.phone,
+                c.email,
+                c.post,
+                c.type_id,
+                c.source_id,
+                c.address,
+                c.address_city,
+                c.comments,
+                c.date_create,
+                c.date_modify,
+                c.assigned_by_id
             FROM bitrix.contacts c
-            WHERE c.id = :contact_id
+            WHERE c.bitrix_id = :contact_id_str
         """)
-        result = await self.db.execute(query, {"contact_id": contact_id})
+        result = await self.db.execute(query, {"contact_id_str": contact_id_str})
         row = result.fetchone()
         if row:
-            return dict(row._mapping)
+            contact_data = dict(row._mapping)
+            # Add human-readable type name
+            contact_data['type_name'] = await self.get_contact_type_name(contact_data.get('type_id'))
+            return contact_data
         return None
     
-    async def get_company_details(self, company_id: int) -> Optional[Dict[str, Any]]:
+    async def get_company_details(self, company_id) -> Optional[Dict[str, Any]]:
         """Get company information"""
+        if company_id is None:
+            return None
+        company_id_str = str(company_id)
         query = text("""
             SELECT 
                 c.id,
-                c.data->>'TITLE' as title,
-                c.data->>'INDUSTRY' as industry,
-                c.data->>'PHONE' as phone,
-                c.data->>'EMAIL' as email,
-                c.data->>'ADDRESS' as address,
-                c.data->>'COMMENTS' as comments
+                c.title,
+                c.industry,
+                c.phone,
+                c.email,
+                c.address,
+                c.comments
             FROM bitrix.companies c
-            WHERE c.id = :company_id
+            WHERE c.bitrix_id = :company_id_str
         """)
-        result = await self.db.execute(query, {"company_id": company_id})
+        result = await self.db.execute(query, {"company_id_str": company_id_str})
         row = result.fetchone()
         if row:
             return dict(row._mapping)
@@ -118,12 +211,12 @@ class CustomerDataCollector:
         params = {"limit": limit}
         
         if deal_id:
-            conditions.append("(a.data->>'OWNER_ID')::int = :deal_id AND a.data->>'OWNER_TYPE_ID' = '2'")
-            params["deal_id"] = deal_id
+            conditions.append("a.owner_id = :deal_id AND a.owner_type_id = '2'")
+            params["deal_id"] = str(deal_id)
         
         if contact_id:
-            conditions.append("(a.data->>'OWNER_ID')::int = :contact_id AND a.data->>'OWNER_TYPE_ID' = '3'")
-            params["contact_id"] = contact_id
+            conditions.append("a.owner_id = :contact_id AND a.owner_type_id = '3'")
+            params["contact_id"] = str(contact_id)
         
         if not conditions:
             return []
@@ -133,18 +226,18 @@ class CustomerDataCollector:
         query = text(f"""
             SELECT 
                 a.id,
-                a.data->>'SUBJECT' as subject,
-                a.data->>'DESCRIPTION' as description,
-                a.data->>'TYPE_ID' as type_id,
-                a.data->>'DIRECTION' as direction,
-                a.data->>'COMPLETED' as completed,
-                a.data->>'CREATED' as created,
-                a.data->>'START_TIME' as start_time,
-                a.data->>'END_TIME' as end_time,
-                a.data->>'RESPONSIBLE_ID' as responsible_id
+                a.subject,
+                a.description,
+                a.type_id,
+                COALESCE(a.data->>'DIRECTION', '') as direction,
+                COALESCE(a.data->>'COMPLETED', 'N') as completed,
+                a.created,
+                COALESCE(a.data->>'START_TIME', '') as start_time,
+                COALESCE(a.data->>'END_TIME', '') as end_time,
+                a.responsible_id
             FROM bitrix.activities a
             WHERE {where_clause}
-            ORDER BY (a.data->>'CREATED')::timestamp DESC
+            ORDER BY a.created DESC NULLS LAST
             LIMIT :limit
         """)
         
@@ -154,33 +247,39 @@ class CustomerDataCollector:
     async def get_tasks(
         self, 
         deal_id: Optional[int] = None,
-        limit: int = 30
+        limit: int = 100
     ) -> List[Dict[str, Any]]:
-        """Get tasks related to a deal"""
+        """Get tasks related to a deal with responsible user names"""
         
-        # Tasks might be linked via UF_CRM_TASK field
+        # Tasks might be linked via UF_CRM_TASK field in original_data
         query = text("""
             SELECT 
                 t.id,
-                t.data->>'TITLE' as title,
-                t.data->>'DESCRIPTION' as description,
-                t.data->>'STATUS' as status,
-                t.data->>'PRIORITY' as priority,
-                t.data->>'CREATED_DATE' as created_date,
-                t.data->>'DEADLINE' as deadline,
-                t.data->>'CLOSED_DATE' as closed_date,
-                t.data->>'RESPONSIBLE_ID' as responsible_id,
-                t.data->>'CREATED_BY' as created_by
+                t.bitrix_id,
+                t.title,
+                t.description,
+                t.status,
+                t.status_name,
+                t.priority,
+                t.created_date,
+                t.deadline,
+                t.closed_date,
+                t.responsible_id,
+                t.created_by,
+                t.comments_count,
+                CONCAT(u.name, ' ', u.last_name) as responsible_name,
+                CONCAT(u2.name, ' ', u2.last_name) as created_by_name
             FROM bitrix.tasks t
-            WHERE t.data->>'UF_CRM_TASK' LIKE :deal_pattern
-               OR t.data->'UF_CRM_TASK' @> :deal_json
-            ORDER BY (t.data->>'CREATED_DATE')::timestamp DESC
+            LEFT JOIN bitrix.users u ON t.responsible_id = u.id::varchar
+            LEFT JOIN bitrix.users u2 ON t.created_by = u2.id::varchar
+            WHERE t.original_data IS NOT NULL 
+              AND t.original_data->>'UF_CRM_TASK' LIKE :deal_pattern
+            ORDER BY t.created_date DESC NULLS LAST
             LIMIT :limit
         """)
         
         result = await self.db.execute(query, {
             "deal_pattern": f"%D_{deal_id}%",
-            "deal_json": json.dumps([f"D_{deal_id}"]),
             "limit": limit
         })
         return [dict(row._mapping) for row in result.fetchall()]
@@ -188,9 +287,9 @@ class CustomerDataCollector:
     async def get_task_comments(
         self, 
         task_ids: List[int],
-        limit: int = 100
+        limit: int = 500
     ) -> List[Dict[str, Any]]:
-        """Get comments for specific tasks"""
+        """Get ALL comments for specific tasks - no limit on important data"""
         
         if not task_ids:
             return []
@@ -198,14 +297,17 @@ class CustomerDataCollector:
         query = text("""
             SELECT 
                 tc.id,
-                tc.data->>'TASK_ID' as task_id,
-                tc.data->>'POST_MESSAGE' as message,
-                tc.data->>'POST_DATE' as post_date,
-                tc.data->>'AUTHOR_ID' as author_id,
-                tc.data->>'AUTHOR_NAME' as author_name
+                tc.task_id,
+                tc.bitrix_id,
+                tc.post_message as message,
+                tc.post_message_html as message_html,
+                tc.post_date,
+                tc.author_id,
+                tc.author_name,
+                tc.author_email
             FROM bitrix.task_comments tc
-            WHERE (tc.data->>'TASK_ID')::int = ANY(:task_ids)
-            ORDER BY (tc.data->>'POST_DATE')::timestamp DESC
+            WHERE tc.task_id = ANY(:task_ids)
+            ORDER BY tc.post_date ASC NULLS LAST
             LIMIT :limit
         """)
         
@@ -219,7 +321,7 @@ class CustomerDataCollector:
         """Get user name by ID"""
         query = text("""
             SELECT 
-                CONCAT(data->>'NAME', ' ', data->>'LAST_NAME') as full_name
+                CONCAT(name, ' ', last_name) as full_name
             FROM bitrix.users
             WHERE id = :user_id
         """)
@@ -229,22 +331,160 @@ class CustomerDataCollector:
             return row.full_name or f"Kullanıcı #{user_id}"
         return f"Kullanıcı #{user_id}"
     
+    async def get_all_contact_deals(self, contact_id: str) -> List[Dict[str, Any]]:
+        """Get ALL deals for a contact with full details"""
+        if not contact_id:
+            return []
+        
+        query = text("""
+            SELECT 
+                d.id,
+                d.title,
+                d.stage_id,
+                d.category_id,
+                d.opportunity,
+                d.currency_id as currency,
+                d.date_create,
+                d.date_modify,
+                d.assigned_by_id,
+                d.comments,
+                d.source_id,
+                CONCAT(u.name, ' ', u.last_name) as assigned_by_name
+            FROM bitrix.deals d
+            LEFT JOIN bitrix.users u ON d.assigned_by_id = u.id::varchar
+            WHERE d.contact_id = :contact_id
+            ORDER BY d.date_modify DESC NULLS LAST
+        """)
+        
+        result = await self.db.execute(query, {"contact_id": contact_id})
+        deals = []
+        for row in result.fetchall():
+            deal_data = dict(row._mapping)
+            # Add human-readable names
+            deal_data['stage_name'] = await self.get_stage_name(deal_data.get('stage_id'))
+            deal_data['category_name'] = await self.get_category_name(deal_data.get('category_id'))
+            deals.append(deal_data)
+        
+        return deals
+    
+    async def get_activities_for_deals(
+        self, 
+        deal_ids: List[int],
+        contact_id: Optional[str] = None,
+        limit: int = 200
+    ) -> List[Dict[str, Any]]:
+        """Get activities for multiple deals and/or contact"""
+        
+        conditions = []
+        params = {"limit": limit}
+        
+        if deal_ids:
+            deal_ids_str = [str(d) for d in deal_ids]
+            conditions.append("(a.owner_id = ANY(:deal_ids) AND a.owner_type_id = '2')")
+            params["deal_ids"] = deal_ids_str
+        
+        if contact_id:
+            if conditions:
+                conditions.append(f"(a.owner_id = :contact_id AND a.owner_type_id = '3')")
+            else:
+                conditions.append("a.owner_id = :contact_id AND a.owner_type_id = '3'")
+            params["contact_id"] = contact_id
+        
+        if not conditions:
+            return []
+        
+        where_clause = " OR ".join(conditions)
+        
+        query = text(f"""
+            SELECT 
+                a.id,
+                a.bitrix_id,
+                a.subject,
+                a.description,
+                a.type_id,
+                a.owner_id,
+                a.owner_type_id,
+                COALESCE(a.data->>'DIRECTION', '') as direction,
+                COALESCE(a.data->>'COMPLETED', 'N') as completed,
+                a.created,
+                COALESCE(a.data->>'START_TIME', '') as start_time,
+                COALESCE(a.data->>'END_TIME', '') as end_time,
+                a.responsible_id,
+                CONCAT(u.name, ' ', u.last_name) as responsible_name
+            FROM bitrix.activities a
+            LEFT JOIN bitrix.users u ON a.responsible_id = u.id::varchar
+            WHERE {where_clause}
+            ORDER BY a.created DESC NULLS LAST
+            LIMIT :limit
+        """)
+        
+        result = await self.db.execute(query, params)
+        return [dict(row._mapping) for row in result.fetchall()]
+    
+    async def get_tasks_for_deals(
+        self, 
+        deal_ids: List[int],
+        limit: int = 200
+    ) -> List[Dict[str, Any]]:
+        """Get tasks for multiple deals"""
+        
+        if not deal_ids:
+            return []
+        
+        # Build pattern for multiple deals
+        patterns = [f"D_{d}" for d in deal_ids]
+        pattern_conditions = " OR ".join([f"t.original_data->>'UF_CRM_TASK' LIKE '%{p}%'" for p in patterns])
+        
+        query = text(f"""
+            SELECT 
+                t.id,
+                t.bitrix_id,
+                t.title,
+                t.description,
+                t.status,
+                t.status_name,
+                t.priority,
+                t.created_date,
+                t.deadline,
+                t.closed_date,
+                t.responsible_id,
+                t.created_by,
+                t.comments_count,
+                t.original_data->>'UF_CRM_TASK' as crm_task_link,
+                CONCAT(u.name, ' ', u.last_name) as responsible_name,
+                CONCAT(u2.name, ' ', u2.last_name) as created_by_name
+            FROM bitrix.tasks t
+            LEFT JOIN bitrix.users u ON t.responsible_id = u.id::varchar
+            LEFT JOIN bitrix.users u2 ON t.created_by = u2.id::varchar
+            WHERE t.original_data IS NOT NULL 
+              AND ({pattern_conditions})
+            ORDER BY t.created_date DESC NULLS LAST
+            LIMIT :limit
+        """)
+        
+        result = await self.db.execute(query, {"limit": limit})
+        return [dict(row._mapping) for row in result.fetchall()]
+    
     async def collect_all_data(self, deal_id: int) -> Dict[str, Any]:
         """
         Collect all data related to a deal for AI summarization
+        Enhanced: Collects ALL deals for the contact with full details
         """
         logger.info("collecting_customer_data", deal_id=deal_id)
         
-        # Get deal details
+        # Get main deal details
         deal = await self.get_deal_details(deal_id)
         if not deal:
             raise ValueError(f"Deal {deal_id} not found")
         
         # Get contact if linked
         contact = None
+        all_contact_deals = []
         if deal.get("contact_id"):
             try:
-                contact = await self.get_contact_details(int(deal["contact_id"]))
+                contact = await self.get_contact_details(deal["contact_id"])
+                # Get ALL deals for this contact
+                all_contact_deals = await self.get_all_contact_deals(str(deal["contact_id"]))
             except (ValueError, TypeError):
                 pass
         
@@ -256,20 +496,23 @@ class CustomerDataCollector:
             except (ValueError, TypeError):
                 pass
         
-        # Get activities
-        activities = await self.get_activities(
-            deal_id=deal_id,
-            contact_id=int(deal["contact_id"]) if deal.get("contact_id") else None
+        # Get all deal IDs for this contact
+        all_deal_ids = [d["id"] for d in all_contact_deals] if all_contact_deals else [deal_id]
+        
+        # Get activities for ALL deals and contact
+        activities = await self.get_activities_for_deals(
+            deal_ids=all_deal_ids,
+            contact_id=str(deal["contact_id"]) if deal.get("contact_id") else None
         )
         
-        # Get tasks
-        tasks = await self.get_tasks(deal_id=deal_id)
+        # Get tasks for ALL deals
+        tasks = await self.get_tasks_for_deals(deal_ids=all_deal_ids)
         
-        # Get task comments
+        # Get ALL task comments
         task_ids = [t["id"] for t in tasks if t.get("id")]
         task_comments = await self.get_task_comments(task_ids) if task_ids else []
         
-        # Get responsible user name
+        # Get responsible user name for main deal
         responsible_name = None
         if deal.get("assigned_by_id"):
             try:
@@ -281,6 +524,7 @@ class CustomerDataCollector:
             "deal": deal,
             "contact": contact,
             "company": company,
+            "all_contact_deals": all_contact_deals,
             "activities": activities,
             "tasks": tasks,
             "task_comments": task_comments,
@@ -308,7 +552,7 @@ class AISummarizer:
             AIProvider.OPENAI: "gpt-4o-mini",
             AIProvider.CLAUDE: "claude-3-haiku-20240307",
             AIProvider.GEMINI: "gemini-1.5-flash",
-            AIProvider.OPENROUTER: "openai/gpt-4o-mini",
+            AIProvider.OPENROUTER: "x-ai/grok-4.1-fast:free",
             AIProvider.OLLAMA: "llama3.2"
         }.get(provider, "gpt-4o-mini")
         
@@ -329,11 +573,12 @@ class AISummarizer:
         return None
     
     def _build_prompt(self, customer_data: Dict[str, Any]) -> str:
-        """Build the summarization prompt"""
+        """Build the summarization prompt - Real Estate Boss perspective"""
         
         deal = customer_data.get("deal", {})
         contact = customer_data.get("contact", {})
         company = customer_data.get("company", {})
+        all_contact_deals = customer_data.get("all_contact_deals", [])
         activities = customer_data.get("activities", [])
         tasks = customer_data.get("tasks", [])
         task_comments = customer_data.get("task_comments", [])
@@ -342,131 +587,328 @@ class AISummarizer:
         # Build context sections
         sections = []
         
-        # Deal Info
-        sections.append(f"""
-## ANLAŞMA BİLGİLERİ
-- Başlık: {deal.get('title', 'Belirtilmemiş')}
-- Aşama: {deal.get('stage_id', 'Belirtilmemiş')}
-- Tutar: {deal.get('opportunity', '0')} {deal.get('currency', 'TRY')}
-- Oluşturma: {deal.get('date_create', 'Belirtilmemiş')}
-- Son Güncelleme: {deal.get('date_modify', 'Belirtilmemiş')}
-- Sorumlu: {responsible_name}
-- Kaynak: {deal.get('source_id', 'Belirtilmemiş')}
-- Notlar: {deal.get('comments', 'Yok')[:500] if deal.get('comments') else 'Yok'}
-""")
-        
-        # Contact Info
+        # Contact Info - ENHANCED with type name
         if contact:
-            contact_name = f"{contact.get('name', '')} {contact.get('last_name', '')}".strip()
+            contact_name = contact.get('full_name') or f"{contact.get('name', '')} {contact.get('second_name', '')} {contact.get('last_name', '')}".strip()
+            contact_type = contact.get('type_name', contact.get('type_id', 'Belirtilmemiş'))
+            
             sections.append(f"""
-## MÜŞTERİ BİLGİLERİ
-- Ad Soyad: {contact_name or 'Belirtilmemiş'}
-- Telefon: {contact.get('phone', 'Belirtilmemiş')}
-- E-posta: {contact.get('email', 'Belirtilmemiş')}
-- Pozisyon: {contact.get('post', 'Belirtilmemiş')}
+## 👤 KİŞİ BİLGİLERİ
+- **Ad Soyad:** {contact_name or 'Belirtilmemiş'}
+- **Kişi Türü:** {contact_type}
+- **Telefon:** {contact.get('phone', 'Belirtilmemiş')}
+- **E-posta:** {contact.get('email', 'Belirtilmemiş')}
+- **Pozisyon/Unvan:** {contact.get('post', 'Belirtilmemiş')}
+- **Adres:** {contact.get('address', '')} {contact.get('address_city', '')}
+- **Kayıt Tarihi:** {contact.get('date_create', 'Belirtilmemiş')}
+- **Son Güncelleme:** {contact.get('date_modify', 'Belirtilmemiş')}
+- **Notlar:** {contact.get('comments', 'Yok')[:500] if contact.get('comments') else 'Yok'}
 """)
         
         # Company Info
         if company:
             sections.append(f"""
-## FİRMA BİLGİLERİ
-- Firma: {company.get('title', 'Belirtilmemiş')}
-- Sektör: {company.get('industry', 'Belirtilmemiş')}
-- Adres: {company.get('address', 'Belirtilmemiş')}
+## 🏢 FİRMA BİLGİLERİ
+- **Firma Adı:** {company.get('title', 'Belirtilmemiş')}
+- **Sektör:** {company.get('industry', 'Belirtilmemiş')}
+- **Telefon:** {company.get('phone', 'Belirtilmemiş')}
+- **E-posta:** {company.get('email', 'Belirtilmemiş')}
+- **Adres:** {company.get('address', 'Belirtilmemiş')}
 """)
         
-        # Activities
-        if activities:
-            activity_texts = []
-            for a in activities[:20]:  # Limit to 20
-                type_map = {
-                    "1": "E-posta",
-                    "2": "Arama",
-                    "3": "Toplantı",
-                    "4": "Görev"
-                }
-                a_type = type_map.get(str(a.get("type_id")), "Aktivite")
-                direction = "Gelen" if a.get("direction") == "1" else "Giden"
-                completed = "✓" if a.get("completed") == "Y" else "○"
+        # ALL DEALS for this contact - ENHANCED with stage names
+        if all_contact_deals:
+            deals_texts = []
+            total_opportunity = 0
+            for d in all_contact_deals:
+                stage_name = d.get('stage_name', d.get('stage_id', 'Bilinmiyor'))
+                category_name = d.get('category_name', d.get('category_id', ''))
+                opportunity = float(d.get('opportunity', 0) or 0)
+                total_opportunity += opportunity
+                currency = d.get('currency', 'TRY')
+                assigned = d.get('assigned_by_name', 'Atanmamış')
+                is_main = "⭐ " if d.get('id') == deal.get('id') else ""
                 
-                desc = a.get("description", "")[:200] if a.get("description") else ""
-                activity_texts.append(
-                    f"- [{completed}] {a.get('created', '')}: {a_type} ({direction}) - {a.get('subject', 'Konu yok')}"
-                    + (f"\n  {desc}" if desc else "")
+                deals_texts.append(
+                    f"- {is_main}**{d.get('title', 'Başlıksız')}**\n"
+                    f"  - Kategori: {category_name}\n"
+                    f"  - Aşama: {stage_name}\n"
+                    f"  - Tutar: {opportunity:,.0f} {currency}\n"
+                    f"  - Sorumlu: {assigned}\n"
+                    f"  - Oluşturma: {format_date(d.get('date_create'))}\n"
+                    f"  - Son Güncelleme: {format_date(d.get('date_modify'))}"
                 )
             
             sections.append(f"""
-## AKTİVİTELER ({len(activities)} kayıt)
+## 📋 KİŞİYE AİT TÜM ANLAŞMALAR ({len(all_contact_deals)} adet)
+**Toplam Potansiyel Değer:** {total_opportunity:,.0f} TRY
+
+{chr(10).join(deals_texts)}
+""")
+        else:
+            # Single deal info - ENHANCED with stage name
+            stage_name = deal.get('stage_name', deal.get('stage_id', 'Belirtilmemiş'))
+            category_name = deal.get('category_name', deal.get('category_id', ''))
+            
+            sections.append(f"""
+## 📋 ANLAŞMA BİLGİLERİ
+- **Başlık:** {deal.get('title', 'Belirtilmemiş')}
+- **Kategori:** {category_name}
+- **Aşama:** {stage_name}
+- **Tutar:** {deal.get('opportunity', '0')} {deal.get('currency', 'TRY')}
+- **Oluşturma:** {deal.get('date_create', 'Belirtilmemiş')}
+- **Son Güncelleme:** {deal.get('date_modify', 'Belirtilmemiş')}
+- **Sorumlu:** {responsible_name}
+- **Notlar:** {deal.get('comments', 'Yok')[:500] if deal.get('comments') else 'Yok'}
+""")
+        
+        # ALL Activities - ENHANCED with responsible names
+        if activities:
+            # Group activities by type
+            calls = [a for a in activities if str(a.get("type_id")) == "2"]
+            emails = [a for a in activities if str(a.get("type_id")) == "1"]
+            meetings = [a for a in activities if str(a.get("type_id")) == "3"]
+            other_activities = [a for a in activities if str(a.get("type_id")) not in ["1", "2", "3"]]
+            
+            activity_texts = []
+            
+            # Phone calls
+            if calls:
+                activity_texts.append(f"\n### 📞 ARAMALAR ({len(calls)} adet)")
+                for a in calls[:30]:
+                    direction = "📥 Gelen" if a.get("direction") == "1" else "📤 Giden"
+                    completed = "✅" if a.get("completed") == "Y" else "⏳"
+                    responsible = a.get('responsible_name', 'Bilinmiyor')
+                    desc = a.get("description", "")[:300] if a.get("description") else ""
+                    desc = desc.replace("\n", " ").strip()
+                    
+                    call_text = f"- {completed} **{format_datetime(a.get('created'))}** | {direction} | Sorumlu: {responsible}"
+                    if a.get('subject'):
+                        call_text += f"\n  - Konu: {a.get('subject')}"
+                    if desc:
+                        call_text += f"\n  - Not: {desc}"
+                    activity_texts.append(call_text)
+            
+            # Emails
+            if emails:
+                activity_texts.append(f"\n### 📧 E-POSTALAR ({len(emails)} adet)")
+                for a in emails[:20]:
+                    direction = "📥 Gelen" if a.get("direction") == "1" else "📤 Giden"
+                    completed = "✅" if a.get("completed") == "Y" else "⏳"
+                    responsible = a.get('responsible_name', 'Bilinmiyor')
+                    
+                    activity_texts.append(
+                        f"- {completed} **{format_datetime(a.get('created'))}** | {direction} | {a.get('subject', 'Konu yok')} | Sorumlu: {responsible}"
+                    )
+            
+            # Meetings
+            if meetings:
+                activity_texts.append(f"\n### 🤝 TOPLANTI/GÖRÜŞMELer ({len(meetings)} adet)")
+                for a in meetings[:20]:
+                    completed = "✅" if a.get("completed") == "Y" else "⏳"
+                    responsible = a.get('responsible_name', 'Bilinmiyor')
+                    desc = a.get("description", "")[:200] if a.get("description") else ""
+                    
+                    meeting_text = f"- {completed} **{format_datetime(a.get('created'))}** | {a.get('subject', 'Konu yok')} | Sorumlu: {responsible}"
+                    if desc:
+                        meeting_text += f"\n  - Detay: {desc}"
+                    activity_texts.append(meeting_text)
+            
+            # Other activities
+            if other_activities:
+                activity_texts.append(f"\n### 📌 DİĞER AKTİVİTELER ({len(other_activities)} adet)")
+                for a in other_activities[:15]:
+                    completed = "✅" if a.get("completed") == "Y" else "⏳"
+                    responsible = a.get('responsible_name', 'Bilinmiyor')
+                    activity_texts.append(
+                        f"- {completed} {format_datetime(a.get('created'))} | {a.get('subject', 'Konu yok')} | Sorumlu: {responsible}"
+                    )
+            
+            sections.append(f"""
+## 📊 TÜM AKTİVİTELER ({len(activities)} kayıt)
+- Toplam Arama: {len(calls)}
+- Toplam E-posta: {len(emails)}
+- Toplam Toplantı: {len(meetings)}
+- Diğer: {len(other_activities)}
+
 {chr(10).join(activity_texts)}
 """)
         
-        # Tasks
+        # ALL Tasks with full details - ENHANCED
         if tasks:
             task_texts = []
-            for t in tasks[:15]:
-                status_map = {
-                    "1": "Yeni",
-                    "2": "Bekliyor",
-                    "3": "Devam Ediyor",
-                    "4": "Ertelendi",
-                    "5": "Tamamlandı",
-                    "6": "İptal"
-                }
-                t_status = status_map.get(str(t.get("status")), "Bilinmiyor")
-                task_texts.append(
-                    f"- [{t_status}] {t.get('title', 'Başlık yok')} (Son: {t.get('deadline', 'Belirsiz')})"
-                )
+            for t in tasks:
+                status_name = t.get('status_name') or {
+                    1: "Yeni", 2: "Bekliyor", 3: "Devam Ediyor", 
+                    4: "Ertelendi", 5: "Tamamlandı", 6: "İptal"
+                }.get(t.get('status'), 'Bilinmiyor')
+                
+                priority_name = {1: "Düşük", 2: "Normal", 3: "Yüksek"}.get(t.get('priority'), '')
+                
+                status_icon = {
+                    "Tamamlandı": "✅", "Yeni": "🆕", "Bekliyor": "⏳",
+                    "Devam Ediyor": "🔄", "Ertelendi": "📅", "İptal": "❌"
+                }.get(status_name, "📋")
+                
+                responsible = t.get('responsible_name', 'Atanmamış')
+                created_by = t.get('created_by_name', 'Bilinmiyor')
+                
+                task_text = f"""
+### {status_icon} {t.get('title', 'Başlık yok')}
+- **Durum:** {status_name} | **Öncelik:** {priority_name}
+- **Sorumlu:** {responsible}
+- **Oluşturan:** {created_by}
+- **Oluşturma:** {format_datetime(t.get('created_date'))}
+- **Son Tarih:** {format_datetime(t.get('deadline')) if t.get('deadline') else 'Belirsiz'}
+- **Yorum Sayısı:** {t.get('comments_count', 0)}"""
+                
+                # Add task description if exists
+                if t.get('description'):
+                    desc = t.get('description', '')[:500]
+                    task_text += f"\n- **Açıklama:** {desc}"
+                
+                # Add related comments for this task
+                task_id = t.get('id')
+                related_comments = [c for c in task_comments if c.get('task_id') == task_id]
+                if related_comments:
+                    task_text += f"\n\n**Yorumlar ({len(related_comments)} adet):**"
+                    for c in related_comments:
+                        msg = c.get("message", "")[:400] if c.get("message") else ""
+                        msg = msg.replace("\n", " ").strip()
+                        if msg:
+                            post_date = format_datetime(c.get('post_date'))
+                            author = c.get('author_name', 'Anonim')
+                            task_text += f"\n  - 💬 [{post_date}] **{author}:** {msg}"
+                
+                task_texts.append(task_text)
+            
+            # Task summary stats
+            completed_tasks = len([t for t in tasks if t.get('status') == 5])
+            pending_tasks = len([t for t in tasks if t.get('status') in [1, 2, 3]])
+            overdue_tasks = len([t for t in tasks if t.get('deadline') and t.get('status') not in [5, 6] 
+                               and format_date(t.get('deadline')) < datetime.now().strftime('%Y-%m-%d')])
             
             sections.append(f"""
-## GÖREVLER ({len(tasks)} kayıt)
+## ✅ TÜM GÖREVLER ({len(tasks)} adet)
+
+**Özet İstatistikler:**
+- ✅ Tamamlanan: {completed_tasks}
+- ⏳ Devam Eden/Bekleyen: {pending_tasks}
+- ⚠️ Geciken: {overdue_tasks}
+- 💬 Toplam Yorum: {len(task_comments)}
+
 {chr(10).join(task_texts)}
-""")
-        
-        # Task Comments
-        if task_comments:
-            comment_texts = []
-            for c in task_comments[:15]:
-                msg = c.get("message", "")[:150] if c.get("message") else ""
-                msg = msg.replace("\n", " ").strip()
-                if msg:
-                    comment_texts.append(f"- {c.get('post_date', '')}: {c.get('author_name', 'Anonim')}: {msg}")
-            
-            if comment_texts:
-                sections.append(f"""
-## GÖREV YORUMLARI ({len(task_comments)} kayıt)
-{chr(10).join(comment_texts)}
 """)
         
         context = "\n".join(sections)
         
-        prompt = f"""Sen bir CRM analisti olarak görev yapıyorsun. Aşağıdaki müşteri verilerini analiz edip Türkçe olarak profesyonel bir özet hazırla.
+        prompt = f"""Sen **Japon Konutları gayrimenkul şirketinin patronu/CEO'susun**. Deneyimli bir gayrimenkul yöneticisi olarak satış ekibinin performansını ve müşteri süreçlerini değerlendiriyorsun.
+
+🏠 **GAYRİMENKUL PATRONU OLARAK ANALİZ ET:**
+- Ekip üyelerinin performansını değerlendir
+- Müşteri ile yapılan görüşmeleri, aramaları, toplantıları incele
+- Görevlerin zamanında yapılıp yapılmadığını kontrol et
+- Yorumlardan müşterinin durumunu ve potansiyelini anla
+- Her personelin ne yaptığını görebilmek istiyorsun
 
 {context}
 
 ---
 
-Lütfen şu formatta bir özet hazırla:
+**LÜTFEN AŞAĞIDAKİ FORMATTA DETAYLI ANALİZ HAZIRLA (Markdown formatı):**
 
-### 📋 MÜŞTERİ SÜRECİ ÖZETİ
+## 🏠 GAYRİMENKUL PATRONU RAPORU
 
-**Müşteri Profili:** (Kim olduğu, firma, pozisyon)
-
-**Süreç Durumu:** (Hangi aşamada, ne kadar süredir)
-
-**İletişim Özeti:** (Kaç kez iletişime geçildi, hangi kanallardan)
-
-**Önemli Noktalar:**
-- (Kritik bilgiler, öne çıkan detaylar)
-
-**Açık Görevler:** (Tamamlanmamış işler varsa)
-
-**Sonraki Adım Önerisi:** (Ne yapılmalı)
-
-**Risk/Fırsat Değerlendirmesi:** (Kısa analiz)
+### 🎯 GENEL DEĞERLENDİRME
+(Tek paragrafta: Müşterinin durumu, potansiyeli ve sürecin özeti)
 
 ---
 
-Özet profesyonel, kısa ve aksiyona yönlendirici olmalı. Maksimum 400 kelime kullan.
+### 👤 MÜŞTERİ PROFİLİ
+
+| Bilgi | Değer |
+|-------|-------|
+| Ad Soyad | ... |
+| Müşteri Tipi | ... |
+| Telefon/E-posta | ... |
+| Toplam Anlaşma Sayısı | ... |
+| Toplam Potansiyel Değer | ... |
+
+---
+
+### 📊 ANLAŞMA DURUMU ANALİZİ
+(Her anlaşma için aşama, değer ve son durumu belirt - ID yerine AŞAMA ADI kullan)
+
+---
+
+### 👥 PERSONEL PERFORMANSI
+
+**Kim Ne Yapmış?**
+(Her personelin yaptığı işleri listele - aramalar, toplantılar, görevler)
+
+| Personel | Yaptığı İşler | Değerlendirme |
+|----------|---------------|---------------|
+| ... | ... | 👍/👎/⚠️ |
+
+---
+
+### 📞 İLETİŞİM ANALİZİ
+- Toplam arama sayısı ve sonuçları
+- Gelen vs Giden arama oranı
+- Son iletişim ne zaman yapıldı?
+- İletişim sıklığı yeterli mi?
+
+---
+
+### ✅ GÖREV TAKİBİ
+- Tamamlanan görevler
+- Geciken/bekleyen görevler
+- Yorumlardan çıkan önemli notlar
+
+---
+
+### ⚠️ KRİTİK BULGULAR
+
+**🔴 Dikkat Edilmesi Gerekenler:**
+(Riskler, eksiklikler, geciken işler)
+
+**🟢 İyi Giden Şeyler:**
+(Başarılı çalışmalar, fırsatlar)
+
+---
+
+### 📋 PATRON OLARAK TALİMATLARIM
+
+**Acil Yapılması Gerekenler (Bu Hafta):**
+1. ...
+2. ...
+
+**Sorumlu Personele Notlar:**
+- ...
+
+---
+
+### 💰 TAHMİN
+
+**Satış Kapanma Olasılığı:** %X
+**Tahmini Kapanma Süresi:** X hafta
+**Önerilen Yaklaşım:** (Agresif takip / Bekle-gör / Yeniden değerlendir)
+
+---
+
+**🏠 PATRON'UN SON SÖZÜ:**
+(Tek cümlede: Bu müşteri için ne yapmalıyız?)
+
+---
+
+**ÖNEMLI KURALLAR:**
+- Türkçe yaz
+- Patron/CEO gibi düşün, kritik ol, personeli değerlendir
+- Aşama ID'leri yerine AŞAMA ADLARINI kullan
+- Her personelin ne yaptığını göster
+- Somut verilerle konuş
+- Belirsiz bilgileri "Bilinmiyor" olarak belirt
+- Markdown formatını düzgün kullan
 """
         
         return prompt
@@ -485,12 +927,12 @@ Lütfen şu formatta bir özet hazırla:
                     "messages": [
                         {
                             "role": "system",
-                            "content": "Sen bir CRM ve satış süreçleri uzmanısın. Müşteri verilerini analiz edip Türkçe özetler hazırlıyorsun."
+                            "content": "Sen Japon Konutları gayrimenkul şirketinin patronu/CEO'susun. Satış ekibinin performansını değerlendiren, müşteri süreçlerini analiz eden, personelin yaptığı işleri inceleyen deneyimli bir gayrimenkul yöneticisisin. Türkçe Markdown formatında detaylı ve kritik raporlar hazırlarsın. Aşama ID'leri yerine aşama adlarını kullanırsın."
                         },
                         {"role": "user", "content": prompt}
                     ],
                     "temperature": 0.7,
-                    "max_tokens": 1500
+                    "max_tokens": 4000
                 },
                 timeout=self.timeout
             )
@@ -513,7 +955,8 @@ Lütfen şu formatta bir özet hazırla:
                 },
                 json={
                     "model": self.model,
-                    "max_tokens": 1500,
+                    "max_tokens": 4000,
+                    "system": "Sen Japon Konutları gayrimenkul şirketinin patronu/CEO'susun. Satış ekibinin performansını değerlendiren, müşteri süreçlerini analiz eden, personelin yaptığı işleri inceleyen deneyimli bir gayrimenkul yöneticisisin. Türkçe Markdown formatında detaylı ve kritik raporlar hazırlarsın.",
                     "messages": [
                         {"role": "user", "content": prompt}
                     ]
@@ -564,7 +1007,7 @@ Lütfen şu formatta bir özet hazırla:
                         }
                     ],
                     "generationConfig": {
-                        "maxOutputTokens": 2000,
+                        "maxOutputTokens": 4000,
                         "temperature": 0.7
                     }
                 },
@@ -601,9 +1044,13 @@ Lütfen şu formatta bir özet hazırla:
                 json={
                     "model": self.model,
                     "messages": [
+                        {
+                            "role": "system",
+                            "content": "Sen Japon Konutları gayrimenkul şirketinin patronu/CEO'susun. Satış ekibinin performansını değerlendiren, müşteri süreçlerini analiz eden, personelin yaptığı işleri inceleyen deneyimli bir gayrimenkul yöneticisisin. Türkçe Markdown formatında detaylı ve kritik raporlar hazırlarsın. Aşama ID'leri yerine aşama adlarını kullanırsın."
+                        },
                         {"role": "user", "content": prompt}
                     ],
-                    "max_tokens": 2000,
+                    "max_tokens": 4000,
                     "temperature": 0.7
                 },
                 timeout=self.timeout

@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
@@ -18,18 +17,21 @@ import {
   Zap,
   User,
   Sparkles,
-  History,
   AlertTriangle,
-  Rocket,
-  RefreshCw
+  RefreshCw,
+  Layers,
+  Wrench,
+  UserSearch
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useSidebar } from '@/components/providers/SidebarContext'
 
 interface NavItem {
   name: string
   href: string
   icon: React.ComponentType<{ className?: string }>
   badge?: number
+  maintenance?: boolean
 }
 
 const navigationItems: NavItem[] = [
@@ -39,14 +41,9 @@ const navigationItems: NavItem[] = [
     icon: LayoutDashboard,
   },
   {
-    name: 'Kurulum Sihirbazı',
-    href: '/setup',
-    icon: Rocket,
-  },
-  {
-    name: 'Senkronizasyon',
-    href: '/sync',
-    icon: RefreshCw,
+    name: 'Müşteri 360°',
+    href: '/customer360',
+    icon: UserSearch,
   },
   {
     name: 'Veri Görüntüleme',
@@ -54,29 +51,32 @@ const navigationItems: NavItem[] = [
     icon: Database,
   },
   {
-    name: 'Veri Aktarımı',
+    name: 'Dışarı Aktarma',
     href: '/export',
     icon: Upload,
+  },
+  {
+    name: 'Sync Center',
+    href: '/sync-center',
+    icon: RefreshCw,
+    maintenance: true,
   },
   {
     name: 'View Yönetimi',
     href: '/views',
     icon: Eye,
+    maintenance: true,
   },
   {
-    name: 'Sheet Sync',
-    href: '/sheet-sync',
-    icon: Zap,
+    name: 'Gelişmiş Views',
+    href: '/advanced-views',
+    icon: Layers,
+    maintenance: true,
   },
   {
     name: 'AI Müşteri Özeti',
     href: '/ai-summary',
     icon: Sparkles,
-  },
-  {
-    name: 'Sync Geçmişi',
-    href: '/sync-history',
-    icon: History,
   },
   {
     name: 'Hata Merkezi',
@@ -86,7 +86,7 @@ const navigationItems: NavItem[] = [
 ]
 
 export default function Sidebar() {
-  const [collapsed, setCollapsed] = useState(false)
+  const { collapsed, toggleCollapsed } = useSidebar()
   const pathname = usePathname()
   const { data: session } = useSession()
 
@@ -124,7 +124,7 @@ export default function Sidebar() {
           />
         )}
         <button
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={toggleCollapsed}
           className="p-2 hover:bg-slate-700 rounded-lg transition-colors ml-auto"
         >
           {collapsed ? (
@@ -140,6 +140,33 @@ export default function Sidebar() {
         {navigationItems.map((item) => {
           const Icon = item.icon
           const isActive = pathname === item.href
+          
+          // Bakım modundaki sayfalar için farklı render
+          if (item.maintenance) {
+            return (
+              <div
+                key={item.href}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200',
+                  'bg-slate-800/50 cursor-not-allowed opacity-60',
+                  collapsed && 'justify-center'
+                )}
+                title={collapsed ? `${item.name} (Bakımda)` : 'Bu sayfa bakımda'}
+              >
+                <Wrench className="w-5 h-5 text-amber-500" />
+                {!collapsed && (
+                  <div className="flex-1 flex items-center justify-between">
+                    <span className="text-sm font-medium text-slate-400 line-through">
+                      {item.name}
+                    </span>
+                    <span className="bg-amber-500/20 text-amber-400 text-xs px-2 py-0.5 rounded-full">
+                      Bakımda
+                    </span>
+                  </div>
+                )}
+              </div>
+            )
+          }
           
           return (
             <Link

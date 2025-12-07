@@ -4,20 +4,28 @@ import { ReactNode } from 'react'
 import Image from 'next/image'
 import { useSession } from 'next-auth/react'
 import Sidebar from '@/components/layout/Sidebar'
+import { useSidebar } from '@/components/providers/SidebarContext'
+import { cn } from '@/lib/utils'
 
 interface DashboardLayoutProps {
   children: ReactNode
+  fullWidth?: boolean  // For spreadsheet-like pages
+  noPadding?: boolean  // Remove padding for full-bleed content
 }
 
-export default function DashboardLayout({ children }: DashboardLayoutProps) {
+export default function DashboardLayout({ children, fullWidth = false, noPadding = false }: DashboardLayoutProps) {
   const { data: session } = useSession()
+  const { collapsed } = useSidebar()
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
       <Sidebar />
       
-      {/* Main Content Area */}
-      <div className="pl-64 transition-all duration-300">
+      {/* Main Content Area - adjusts based on sidebar state */}
+      <div className={cn(
+        'transition-all duration-300',
+        collapsed ? 'pl-16' : 'pl-64'
+      )}>
         {/* Top Bar */}
         <header className="sticky top-0 z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center justify-between px-6 py-4">
@@ -65,7 +73,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </header>
 
         {/* Page Content */}
-        <main className="p-6">
+        <main className={cn(
+          noPadding ? '' : 'p-6',
+          fullWidth ? 'max-w-none' : ''
+        )}>
           {children}
         </main>
       </div>

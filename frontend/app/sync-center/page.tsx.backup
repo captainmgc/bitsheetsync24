@@ -1,0 +1,1172 @@
+'use client'
+
+import DashboardLayout from '@/components/layout/DashboardLayout'
+import ProtectedRoute from '@/components/auth/ProtectedRoute'
+import { Wrench, ArrowLeft } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import Link from 'next/link'
+
+export default function SyncCenterPage() {
+  return (
+    <ProtectedRoute>
+      <DashboardLayout>
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <Card className="max-w-lg w-full text-center">
+            <CardHeader>
+              <div className="mx-auto w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-4">
+                <Wrench className="w-8 h-8 text-amber-600" />
+              </div>
+              <CardTitle className="text-2xl">Sayfa Bakımda</CardTitle>
+              <CardDescription className="text-base mt-2">
+                Sync Center şu anda bakım çalışması nedeniyle kullanılamıyor.
+                <br />
+                Kısa süre içinde tekrar hizmetinizde olacağız.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+                <strong>Bakım Bildirimi:</strong> Sistem iyileştirmeleri ve performans optimizasyonları yapılmaktadır.
+              </div>
+              <Link href="/dashboard">
+                <Button className="w-full">
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Dashboard'a Dön
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        </div>
+      </DashboardLayout>
+    </ProtectedRoute>
+  )
+}
+
+interface SyncConfig {
+  id: number
+  name: string
+  spreadsheet_id: string
+  spreadsheet_url: string
+  tables: string[]
+  table_views: { [key: string]: number }
+  sync_mode: 'one_way' | 'two_way'
+  auto_sync: boolean
+  sync_interval: number // minutes
+  last_sync: string | null
+  status: 'active' | 'paused' | 'error'
+  created_at: string
+}
+
+interface ChangeRecord {
+  id: string
+  table: string
+  record_id: string
+  field: string
+  old_value: string
+  new_value: string
+  source: 'sheet' | 'bitrix'
+  detected_at: string
+  status: 'pending' | 'applied' | 'rejected'
+}
+
+export default function SyncCenterPage() {
+  const { data: session } = useSession()
+  const [activeView, setActiveView] = useState<'wizard' | 'configs' | 'changes'>('configs')
+  const [currentStep, setCurrentStep] = useState<WizardStep>(1)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  
+  // Google connection state
+  const [isGoogleConnected, setIsGoogleConnected] = useState(false)
+  const [googleEmail, setGoogleEmail] = useState<string | null>(null)
+  
+  // Wizard state
+  const [selectedTables, setSelectedTables] = useState<SelectedTable[]>([
+    { name: 'contacts', displayName: 'Müşteriler', recordCount: 0, selected: false },
+    { name: 'companies', displayName: 'Şirketler', recordCount: 0, selected: false },
+    { name: 'deals', displayName: 'Anlaşmalar', recordCount: 0, selected: false },
+    { name: 'activities', displayName: 'Aktiviteler', recordCount: 0, selected: false },
+    { name: 'tasks', displayName: 'Görevler', recordCount: 0, selected: false },
+    { name: 'task_comments', displayName: 'Görev Yorumları', recordCount: 0, selected: false },
+    { name: 'leads', displayName: 'Potansiyel Müşteriler', recordCount: 0, selected: false },
+  ])
+  const [syncName, setSyncName] = useState('')
+  const [syncMode, setSyncMode] = useState<'one_way' | 'two_way'>('two_way')
+  const [autoSync, setAutoSync] = useState(true)
+  const [syncInterval, setSyncInterval] = useState(15) // minutes
+  const [sheetMode, setSheetMode] = useState<'new' | 'existing'>('new')
+  const [sheetName, setSheetName] = useState('')
+  const [existingSheetId, setExistingSheetId] = useState('')
+  
+  // Configs state
+  const [syncConfigs, setSyncConfigs] = useState<SyncConfig[]>([])
+  const [selectedConfig, setSelectedConfig] = useState<SyncConfig | null>(null)
+  
+  // Changes state
+  const [pendingChanges, setPendingChanges] = useState<ChangeRecord[]>([])
+  
+  // Export/Sync status
+  const [syncStatus, setSyncStatus] = useState<{
+    status: 'idle' | 'running' | 'success' | 'error'
+    message: string
+    sheetUrl?: string
+  }>({ status: 'idle', message: '' })
+
+  // Check Google connection
+  useEffect(() => {
+    checkGoogleConnection()
+    loadTableCounts()
+    loadSyncConfigs()
+  }, [])
+
+  const checkGoogleConnection = async () => {
+    try {
+      const response = await fetch(apiUrl('/api/sheet-sync/token'), {
+        headers: {
+          'Authorization': `Bearer ${session?.accessToken}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        if (data.token?.is_active) {
+          setIsGoogleConnected(true)
+          setGoogleEmail(data.token.user_email)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to check Google connection:', error)
+    }
+  }
+
+  const loadTableCounts = async () => {
+    try {
+      const response = await fetch(apiUrl('/api/tables/'))
+      const data = await response.json()
+      setSelectedTables(prev =>
+        prev.map(t => {
+          const tableData = data.find((d: any) => d.name === t.name)
+          return tableData ? { ...t, recordCount: tableData.record_count } : t
+        })
+      )
+    } catch (error) {
+      console.error('Failed to fetch table counts:', error)
+    }
+  }
+
+  const loadSyncConfigs = async () => {
+    try {
+      const response = await fetch(apiUrl('/api/sync-center/configs'), {
+        headers: {
+          'Authorization': `Bearer ${session?.accessToken}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setSyncConfigs(data.configs || [])
+      }
+    } catch (error) {
+      console.error('Failed to load sync configs:', error)
+      // Mock data for demo
+      setSyncConfigs([])
+    }
+  }
+
+  const loadPendingChanges = async (configId: number) => {
+    try {
+      const response = await fetch(apiUrl(`/api/sync-center/configs/${configId}/changes`), {
+        headers: {
+          'Authorization': `Bearer ${session?.accessToken}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setPendingChanges(data.changes || [])
+      }
+    } catch (error) {
+      console.error('Failed to load pending changes:', error)
+      setPendingChanges([])
+    }
+  }
+
+  const fetchViewsForTable = async (tableName: string) => {
+    try {
+      const response = await fetch(apiUrl(`/api/views/${tableName}`))
+      const result = await response.json()
+      setSelectedTables(prev =>
+        prev.map(t =>
+          t.name === tableName ? { ...t, availableViews: result.views || [] } : t
+        )
+      )
+    } catch (error) {
+      console.error(`Failed to fetch views for ${tableName}:`, error)
+    }
+  }
+
+  const toggleTable = (tableName: string) => {
+    setSelectedTables(prev =>
+      prev.map(t => {
+        if (t.name === tableName) {
+          const newSelected = !t.selected
+          if (newSelected && !t.availableViews) {
+            fetchViewsForTable(tableName)
+          }
+          return { ...t, selected: newSelected }
+        }
+        return t
+      })
+    )
+  }
+
+  const setTableView = (tableName: string, viewId: number | undefined) => {
+    setSelectedTables(prev =>
+      prev.map(t => t.name === tableName ? { ...t, selectedView: viewId } : t)
+    )
+  }
+
+  const startOAuth = () => {
+    const width = 600
+    const height = 700
+    const left = window.screenX + (window.outerWidth - width) / 2
+    const top = window.screenY + (window.outerHeight - height) / 2
+    window.open(
+      apiUrl('/api/sheet-sync/oauth/start'),
+      'Google OAuth',
+      `width=${width},height=${height},left=${left},top=${top}`
+    )
+  }
+
+  const canProceed = () => {
+    if (currentStep === 1) return selectedTables.some(t => t.selected)
+    if (currentStep === 2) return syncName.trim() !== ''
+    if (currentStep === 3) return true
+    if (currentStep === 4) return sheetMode === 'new' ? sheetName.trim() !== '' : existingSheetId.trim() !== ''
+    return true
+  }
+
+  const handleCreateSync = async () => {
+    setIsLoading(true)
+    setSyncStatus({ status: 'running', message: 'Senkronizasyon oluşturuluyor...' })
+
+    try {
+      const tableViews: { [key: string]: number } = {}
+      selectedTables.forEach(t => {
+        if (t.selected && t.selectedView) {
+          tableViews[t.name] = t.selectedView
+        }
+      })
+
+      const payload = {
+        name: syncName,
+        tables: selectedTables.filter(t => t.selected).map(t => t.name),
+        table_views: tableViews,
+        sync_mode: syncMode,
+        auto_sync: autoSync,
+        sync_interval: syncInterval,
+        sheet_mode: sheetMode,
+        sheet_name: sheetMode === 'new' ? sheetName : undefined,
+        sheet_id: sheetMode === 'existing' ? existingSheetId : undefined,
+      }
+
+      const response = await fetch(apiUrl('/api/sync-center/configs'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.accessToken}`
+        },
+        body: JSON.stringify(payload)
+      })
+
+      if (!response.ok) {
+        throw new Error('Senkronizasyon oluşturulamadı')
+      }
+
+      const result = await response.json()
+      
+      setSyncStatus({
+        status: 'success',
+        message: `✅ Senkronizasyon başarıyla oluşturuldu!`,
+        sheetUrl: result.spreadsheet_url
+      })
+
+      // Reload configs
+      loadSyncConfigs()
+      
+      // Reset wizard
+      setTimeout(() => {
+        setActiveView('configs')
+        resetWizard()
+      }, 2000)
+    } catch (error) {
+      setSyncStatus({
+        status: 'error',
+        message: '❌ Senkronizasyon oluşturulurken hata oluştu.'
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const resetWizard = () => {
+    setCurrentStep(1)
+    setSelectedTables(prev => prev.map(t => ({ ...t, selected: false, selectedView: undefined })))
+    setSyncName('')
+    setSyncMode('two_way')
+    setAutoSync(true)
+    setSyncInterval(15)
+    setSheetMode('new')
+    setSheetName('')
+    setExistingSheetId('')
+    setSyncStatus({ status: 'idle', message: '' })
+  }
+
+  const handleSyncNow = async (configId: number) => {
+    try {
+      setIsLoading(true)
+      const response = await fetch(apiUrl(`/api/sync-center/configs/${configId}/sync`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.accessToken}`
+        }
+      })
+      if (response.ok) {
+        loadSyncConfigs()
+      }
+    } catch (error) {
+      console.error('Sync failed:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleToggleAutoSync = async (configId: number, enabled: boolean) => {
+    try {
+      await fetch(apiUrl(`/api/sync-center/configs/${configId}`), {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.accessToken}`
+        },
+        body: JSON.stringify({ auto_sync: enabled })
+      })
+      loadSyncConfigs()
+    } catch (error) {
+      console.error('Toggle auto sync failed:', error)
+    }
+  }
+
+  const handleDeleteConfig = async (configId: number) => {
+    if (!confirm('Bu senkronizasyonu silmek istediğinize emin misiniz?')) return
+    
+    try {
+      await fetch(apiUrl(`/api/sync-center/configs/${configId}`), {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session?.accessToken}`
+        }
+      })
+      loadSyncConfigs()
+      setSelectedConfig(null)
+    } catch (error) {
+      console.error('Delete failed:', error)
+    }
+  }
+
+  const handleApplyChange = async (changeId: string) => {
+    try {
+      await fetch(apiUrl(`/api/sync-center/changes/${changeId}/apply`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.accessToken}`
+        }
+      })
+      if (selectedConfig) {
+        loadPendingChanges(selectedConfig.id)
+      }
+    } catch (error) {
+      console.error('Apply change failed:', error)
+    }
+  }
+
+  const handleRejectChange = async (changeId: string) => {
+    try {
+      await fetch(apiUrl(`/api/sync-center/changes/${changeId}/reject`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.accessToken}`
+        }
+      })
+      if (selectedConfig) {
+        loadPendingChanges(selectedConfig.id)
+      }
+    } catch (error) {
+      console.error('Reject change failed:', error)
+    }
+  }
+
+  const steps = [
+    { number: 1, title: 'Tablo & View', description: 'Hangi veriler aktarılacak?' },
+    { number: 2, title: 'Sync Ayarları', description: 'Senkronizasyon modu' },
+    { number: 3, title: 'Zamanlama', description: 'Otomatik güncelleme' },
+    { number: 4, title: 'Hedef Sheet', description: 'Google Sheets seçimi' },
+    { number: 5, title: 'Oluştur', description: 'Senkronizasyonu başlat' },
+  ]
+
+  // If Google not connected, show connection card
+  if (!isGoogleConnected) {
+    return (
+      <ProtectedRoute>
+        <DashboardLayout>
+          <div className="max-w-4xl mx-auto space-y-6">
+            <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-6 text-white shadow-lg">
+              <h1 className="text-2xl font-bold mb-2 flex items-center gap-2">
+                <ArrowLeftRight className="w-8 h-8" />
+                Senkronizasyon Merkezi
+              </h1>
+              <p className="text-blue-100">
+                Bitrix24 verilerinizi Google Sheets ile çift yönlü senkronize edin
+              </p>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Google Sheets Bağlantısı Gerekli</CardTitle>
+                <CardDescription>
+                  Senkronizasyon için Google hesabınızı bağlamanız gerekmektedir
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col items-center justify-center py-12 space-y-4">
+                <div className="w-20 h-20 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center">
+                  <FileSpreadsheet className="w-10 h-10 text-white" />
+                </div>
+                <p className="text-center text-muted-foreground max-w-md">
+                  Google Sheets ile senkronizasyon yapabilmek için hesabınıza erişim izni vermeniz gerekmektedir.
+                </p>
+                <Button onClick={startOAuth} size="lg" className="gap-2">
+                  <ExternalLink className="h-4 w-4" />
+                  Google ile Bağlan
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </DashboardLayout>
+      </ProtectedRoute>
+    )
+  }
+
+  return (
+    <ProtectedRoute>
+      <DashboardLayout>
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-6 text-white shadow-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-bold mb-2 flex items-center gap-2">
+                  <ArrowLeftRight className="w-8 h-8" />
+                  Senkronizasyon Merkezi
+                </h1>
+                <p className="text-blue-100">
+                  Bitrix24 verilerinizi Google Sheets ile çift yönlü senkronize edin
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <Badge variant="secondary" className="bg-white/20 text-white flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4" />
+                  {googleEmail}
+                </Badge>
+              </div>
+            </div>
+          </div>
+
+          {/* Tab Navigation */}
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+            <div className="border-b border-slate-200 dark:border-slate-700">
+              <nav className="flex">
+                <button
+                  onClick={() => setActiveView('configs')}
+                  className={`flex-1 px-6 py-4 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
+                    activeView === 'configs'
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Settings className="w-5 h-5" />
+                  Senkronizasyonlarım
+                </button>
+                <button
+                  onClick={() => setActiveView('wizard')}
+                  className={`flex-1 px-6 py-4 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
+                    activeView === 'wizard'
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Plus className="w-5 h-5" />
+                  Yeni Senkronizasyon
+                </button>
+                <button
+                  onClick={() => setActiveView('changes')}
+                  className={`flex-1 px-6 py-4 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
+                    activeView === 'changes'
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Edit3 className="w-5 h-5" />
+                  Değişiklikler
+                  {pendingChanges.filter(c => c.status === 'pending').length > 0 && (
+                    <Badge variant="destructive" className="ml-1">
+                      {pendingChanges.filter(c => c.status === 'pending').length}
+                    </Badge>
+                  )}
+                </button>
+              </nav>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              {/* Configs View */}
+              {activeView === 'configs' && (
+                <div className="space-y-4">
+                  {syncConfigs.length === 0 ? (
+                    <div className="text-center py-12">
+                      <FileSpreadsheet className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                      <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">
+                        Henüz senkronizasyon yok
+                      </h3>
+                      <p className="text-slate-500 dark:text-slate-400 mb-4">
+                        İlk senkronizasyonunuzu oluşturmak için başlayın
+                      </p>
+                      <Button onClick={() => setActiveView('wizard')} className="gap-2">
+                        <Plus className="w-4 h-4" />
+                        Yeni Senkronizasyon Oluştur
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="grid gap-4">
+                      {syncConfigs.map((config) => (
+                        <div
+                          key={config.id}
+                          className={`p-4 rounded-xl border-2 transition-all cursor-pointer ${
+                            selectedConfig?.id === config.id
+                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+                              : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                          }`}
+                          onClick={() => {
+                            setSelectedConfig(config)
+                            loadPendingChanges(config.id)
+                          }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                              <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+                                config.status === 'active' 
+                                  ? 'bg-green-100 dark:bg-green-900/30' 
+                                  : config.status === 'paused'
+                                  ? 'bg-yellow-100 dark:bg-yellow-900/30'
+                                  : 'bg-red-100 dark:bg-red-900/30'
+                              }`}>
+                                <FileSpreadsheet className={`w-6 h-6 ${
+                                  config.status === 'active'
+                                    ? 'text-green-600'
+                                    : config.status === 'paused'
+                                    ? 'text-yellow-600'
+                                    : 'text-red-600'
+                                }`} />
+                              </div>
+                              <div>
+                                <h3 className="font-semibold text-slate-900 dark:text-white">
+                                  {config.name}
+                                </h3>
+                                <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                                  <span>{config.tables.length} tablo</span>
+                                  <span>•</span>
+                                  <span className="flex items-center gap-1">
+                                    {config.sync_mode === 'two_way' ? (
+                                      <>
+                                        <ArrowLeftRight className="w-3.5 h-3.5" />
+                                        Çift Yönlü
+                                      </>
+                                    ) : (
+                                      <>
+                                        <ChevronRight className="w-3.5 h-3.5" />
+                                        Tek Yönlü
+                                      </>
+                                    )}
+                                  </span>
+                                  {config.auto_sync && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="flex items-center gap-1">
+                                        <Clock className="w-3.5 h-3.5" />
+                                        Her {config.sync_interval} dk
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant={config.status === 'active' ? 'default' : config.status === 'paused' ? 'secondary' : 'destructive'}>
+                                {config.status === 'active' ? 'Aktif' : config.status === 'paused' ? 'Duraklatıldı' : 'Hata'}
+                              </Badge>
+                              {config.last_sync && (
+                                <span className="text-xs text-slate-500">
+                                  Son: {new Date(config.last_sync).toLocaleString('tr-TR')}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {selectedConfig?.id === config.id && (
+                            <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                onClick={(e) => { e.stopPropagation(); handleSyncNow(config.id) }}
+                                disabled={isLoading}
+                                className="gap-2"
+                              >
+                                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                                Şimdi Senkronize Et
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => { e.stopPropagation(); handleToggleAutoSync(config.id, !config.auto_sync) }}
+                                className="gap-2"
+                              >
+                                {config.auto_sync ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                                {config.auto_sync ? 'Duraklat' : 'Başlat'}
+                              </Button>
+                              <a
+                                href={config.spreadsheet_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-2 px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                                Sheet'i Aç
+                              </a>
+                              <div className="flex-1" />
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={(e) => { e.stopPropagation(); handleDeleteConfig(config.id) }}
+                                className="gap-2"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                Sil
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Wizard View */}
+              {activeView === 'wizard' && (
+                <div className="space-y-6">
+                  {/* Progress Steps */}
+                  <div className="flex items-center justify-between mb-8">
+                    {steps.map((step, idx) => (
+                      <div key={step.number} className="flex items-center flex-1">
+                        <div className="flex flex-col items-center">
+                          <div
+                            className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all ${
+                              currentStep >= step.number
+                                ? 'bg-gradient-to-br from-blue-500 to-purple-500 text-white'
+                                : 'bg-slate-200 dark:bg-slate-700 text-slate-500'
+                            }`}
+                          >
+                            {currentStep > step.number ? <Check className="w-5 h-5" /> : step.number}
+                          </div>
+                          <div className="mt-2 text-center">
+                            <div className="text-xs font-medium text-slate-900 dark:text-white">{step.title}</div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400">{step.description}</div>
+                          </div>
+                        </div>
+                        {idx < steps.length - 1 && (
+                          <div className={`flex-1 h-1 mx-2 transition-all ${
+                            currentStep > step.number ? 'bg-gradient-to-r from-blue-500 to-purple-500' : 'bg-slate-200 dark:bg-slate-700'
+                          }`} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Step 1: Table & View Selection */}
+                  {currentStep === 1 && (
+                    <div className="space-y-4">
+                      <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <Database className="w-6 h-6 text-blue-500" />
+                        Tablo ve View Seçimi
+                      </h2>
+                      <p className="text-slate-600 dark:text-slate-400">
+                        Senkronize edilecek tabloları ve varsa özel view'ları seçin:
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {selectedTables.map((table) => (
+                          <div key={table.name} className="space-y-2">
+                            <button
+                              onClick={() => toggleTable(table.name)}
+                              className={`w-full p-4 rounded-lg border-2 transition-all text-left ${
+                                table.selected
+                                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+                                  : 'border-slate-200 dark:border-slate-700 hover:border-blue-300'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <Table2 className={`w-5 h-5 ${table.selected ? 'text-blue-500' : 'text-slate-400'}`} />
+                                  <div>
+                                    <div className="font-medium text-slate-900 dark:text-white">{table.displayName}</div>
+                                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                                      {table.recordCount.toLocaleString('tr-TR')} kayıt
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                                  table.selected ? 'bg-blue-500 text-white' : 'bg-slate-200 dark:bg-slate-700'
+                                }`}>
+                                  {table.selected && <Check className="w-4 h-4" />}
+                                </div>
+                              </div>
+                            </button>
+                            
+                            {table.selected && table.availableViews && table.availableViews.length > 0 && (
+                              <div className="ml-4 pl-4 border-l-2 border-blue-300 space-y-2">
+                                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                                  <Filter className="w-3.5 h-3.5" />
+                                  View Seçin (Opsiyonel)
+                                </label>
+                                <select
+                                  value={table.selectedView || ''}
+                                  onChange={(e) => setTableView(table.name, e.target.value ? parseInt(e.target.value) : undefined)}
+                                  className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                                >
+                                  <option value="">Tüm Kayıtlar</option>
+                                  {table.availableViews.map((view) => (
+                                    <option key={view.id} value={view.id}>{view.view_name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 2: Sync Settings */}
+                  {currentStep === 2 && (
+                    <div className="space-y-6">
+                      <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <Settings className="w-6 h-6 text-blue-500" />
+                        Senkronizasyon Ayarları
+                      </h2>
+                      
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                            Senkronizasyon Adı
+                          </label>
+                          <input
+                            type="text"
+                            value={syncName}
+                            onChange={(e) => setSyncName(e.target.value)}
+                            placeholder="Örn: Günlük Satış Raporu"
+                            className="w-full px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                            Senkronizasyon Modu
+                          </label>
+                          <div className="grid grid-cols-2 gap-4">
+                            <button
+                              onClick={() => setSyncMode('two_way')}
+                              className={`p-4 rounded-lg border-2 transition-all text-left ${
+                                syncMode === 'two_way'
+                                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+                                  : 'border-slate-200 dark:border-slate-700 hover:border-blue-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 mb-2">
+                                <ArrowLeftRight className={`w-6 h-6 ${syncMode === 'two_way' ? 'text-blue-500' : 'text-slate-400'}`} />
+                                <span className="font-medium text-slate-900 dark:text-white">Çift Yönlü</span>
+                              </div>
+                              <p className="text-sm text-slate-500 dark:text-slate-400">
+                                Hem Bitrix24'ten Sheets'e, hem Sheets'ten Bitrix24'e güncelleme
+                              </p>
+                            </button>
+                            <button
+                              onClick={() => setSyncMode('one_way')}
+                              className={`p-4 rounded-lg border-2 transition-all text-left ${
+                                syncMode === 'one_way'
+                                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+                                  : 'border-slate-200 dark:border-slate-700 hover:border-blue-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 mb-2">
+                                <ChevronRight className={`w-6 h-6 ${syncMode === 'one_way' ? 'text-blue-500' : 'text-slate-400'}`} />
+                                <span className="font-medium text-slate-900 dark:text-white">Tek Yönlü</span>
+                              </div>
+                              <p className="text-sm text-slate-500 dark:text-slate-400">
+                                Sadece Bitrix24'ten Sheets'e (salt okunur rapor)
+                              </p>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 3: Schedule */}
+                  {currentStep === 3 && (
+                    <div className="space-y-6">
+                      <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <Clock className="w-6 h-6 text-blue-500" />
+                        Zamanlama
+                      </h2>
+                      
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                          <div>
+                            <div className="font-medium text-slate-900 dark:text-white">Otomatik Senkronizasyon</div>
+                            <div className="text-sm text-slate-500 dark:text-slate-400">
+                              Verileriniz belirli aralıklarla otomatik güncellenir
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setAutoSync(!autoSync)}
+                            className={`relative w-14 h-8 rounded-full transition-colors ${
+                              autoSync ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'
+                            }`}
+                          >
+                            <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-transform ${
+                              autoSync ? 'left-7' : 'left-1'
+                            }`} />
+                          </button>
+                        </div>
+
+                        {autoSync && (
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                              Senkronizasyon Aralığı
+                            </label>
+                            <div className="grid grid-cols-4 gap-3">
+                              {[5, 15, 30, 60].map((interval) => (
+                                <button
+                                  key={interval}
+                                  onClick={() => setSyncInterval(interval)}
+                                  className={`p-3 rounded-lg border-2 font-medium transition-all ${
+                                    syncInterval === interval
+                                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-600'
+                                      : 'border-slate-200 dark:border-slate-700 hover:border-blue-300 text-slate-700 dark:text-slate-300'
+                                  }`}
+                                >
+                                  {interval < 60 ? `${interval} dk` : '1 saat'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 4: Sheet Selection */}
+                  {currentStep === 4 && (
+                    <div className="space-y-6">
+                      <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <FileSpreadsheet className="w-6 h-6 text-blue-500" />
+                        Google Sheets Hedefi
+                      </h2>
+                      
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <button
+                            onClick={() => setSheetMode('new')}
+                            className={`p-4 rounded-lg border-2 transition-all text-left ${
+                              sheetMode === 'new'
+                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+                                : 'border-slate-200 dark:border-slate-700 hover:border-blue-300'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 mb-2">
+                              <Plus className={`w-6 h-6 ${sheetMode === 'new' ? 'text-blue-500' : 'text-slate-400'}`} />
+                              <span className="font-medium text-slate-900 dark:text-white">Yeni Sheet Oluştur</span>
+                            </div>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                              Yeni bir Google Sheets dosyası oluşturulur
+                            </p>
+                          </button>
+                          <button
+                            onClick={() => setSheetMode('existing')}
+                            className={`p-4 rounded-lg border-2 transition-all text-left ${
+                              sheetMode === 'existing'
+                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+                                : 'border-slate-200 dark:border-slate-700 hover:border-blue-300'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 mb-2">
+                              <Link2 className={`w-6 h-6 ${sheetMode === 'existing' ? 'text-blue-500' : 'text-slate-400'}`} />
+                              <span className="font-medium text-slate-900 dark:text-white">Mevcut Sheet</span>
+                            </div>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                              Var olan bir dosyaya bağlanır
+                            </p>
+                          </button>
+                        </div>
+
+                        {sheetMode === 'new' ? (
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                              Dosya Adı
+                            </label>
+                            <input
+                              type="text"
+                              value={sheetName}
+                              onChange={(e) => setSheetName(e.target.value)}
+                              placeholder="Örn: Bitrix24 Satış Verileri"
+                              className="w-full px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                        ) : (
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                              Spreadsheet ID veya URL
+                            </label>
+                            <input
+                              type="text"
+                              value={existingSheetId}
+                              onChange={(e) => setExistingSheetId(e.target.value)}
+                              placeholder="Örn: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+                              className="w-full px-4 py-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                            />
+                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                              Sheet URL'sinden veya paylaşım linkinden ID'yi alabilirsiniz
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 5: Summary & Create */}
+                  {currentStep === 5 && (
+                    <div className="space-y-6">
+                      <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <CheckCircle2 className="w-6 h-6 text-green-500" />
+                        Özet ve Oluştur
+                      </h2>
+
+                      <div className="bg-slate-50 dark:bg-slate-900 rounded-xl p-6 space-y-4">
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-600 dark:text-slate-400">Senkronizasyon Adı:</span>
+                          <span className="font-medium text-slate-900 dark:text-white">{syncName}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-600 dark:text-slate-400">Tablolar:</span>
+                          <span className="font-medium text-slate-900 dark:text-white">
+                            {selectedTables.filter(t => t.selected).map(t => t.displayName).join(', ')}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-600 dark:text-slate-400">Mod:</span>
+                          <Badge variant={syncMode === 'two_way' ? 'default' : 'secondary'}>
+                            {syncMode === 'two_way' ? 'Çift Yönlü' : 'Tek Yönlü'}
+                          </Badge>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-600 dark:text-slate-400">Otomatik Sync:</span>
+                          <span className="font-medium text-slate-900 dark:text-white">
+                            {autoSync ? `Her ${syncInterval} dakika` : 'Kapalı'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-600 dark:text-slate-400">Hedef:</span>
+                          <span className="font-medium text-slate-900 dark:text-white">
+                            {sheetMode === 'new' ? `Yeni: ${sheetName}` : `Mevcut: ${existingSheetId.slice(0, 20)}...`}
+                          </span>
+                        </div>
+                      </div>
+
+                      {syncStatus.status !== 'idle' && (
+                        <div className={`p-4 rounded-lg ${
+                          syncStatus.status === 'success' ? 'bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800' :
+                          syncStatus.status === 'error' ? 'bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800' :
+                          'bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800'
+                        }`}>
+                          <div className="flex items-center gap-3">
+                            {syncStatus.status === 'running' && <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />}
+                            {syncStatus.status === 'success' && <CheckCircle2 className="w-5 h-5 text-green-500" />}
+                            {syncStatus.status === 'error' && <AlertCircle className="w-5 h-5 text-red-500" />}
+                            <span className="text-slate-900 dark:text-white">{syncStatus.message}</span>
+                          </div>
+                          {syncStatus.sheetUrl && (
+                            <a
+                              href={syncStatus.sheetUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-3 inline-flex items-center gap-2 text-blue-600 hover:text-blue-700"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                              Google Sheets'i Aç
+                            </a>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Navigation Buttons */}
+                  <div className="flex justify-between pt-6 border-t border-slate-200 dark:border-slate-700">
+                    <Button
+                      variant="outline"
+                      onClick={() => currentStep > 1 ? setCurrentStep(prev => (prev - 1) as WizardStep) : setActiveView('configs')}
+                      className="gap-2"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      {currentStep === 1 ? 'İptal' : 'Geri'}
+                    </Button>
+                    
+                    {currentStep < 5 ? (
+                      <Button
+                        onClick={() => setCurrentStep(prev => (prev + 1) as WizardStep)}
+                        disabled={!canProceed()}
+                        className="gap-2"
+                      >
+                        İleri
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={handleCreateSync}
+                        disabled={isLoading || syncStatus.status === 'success'}
+                        className="gap-2 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600"
+                      >
+                        {isLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Oluşturuluyor...
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-4 h-4" />
+                            Senkronizasyonu Oluştur
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Changes View */}
+              {activeView === 'changes' && (
+                <div className="space-y-4">
+                  {!selectedConfig ? (
+                    <div className="text-center py-12">
+                      <Edit3 className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                      <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">
+                        Senkronizasyon Seçin
+                      </h3>
+                      <p className="text-slate-500 dark:text-slate-400 mb-4">
+                        Değişiklikleri görmek için önce "Senkronizasyonlarım" sekmesinden bir yapılandırma seçin
+                      </p>
+                      <Button onClick={() => setActiveView('configs')} variant="outline">
+                        Senkronizasyonlara Git
+                      </Button>
+                    </div>
+                  ) : pendingChanges.length === 0 ? (
+                    <div className="text-center py-12">
+                      <CheckCircle2 className="w-16 h-16 text-green-300 mx-auto mb-4" />
+                      <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">
+                        Bekleyen Değişiklik Yok
+                      </h3>
+                      <p className="text-slate-500 dark:text-slate-400">
+                        Tüm veriler senkronize durumda
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-semibold text-slate-900 dark:text-white">
+                          {selectedConfig.name} - Bekleyen Değişiklikler
+                        </h3>
+                        <Badge>{pendingChanges.filter(c => c.status === 'pending').length} bekliyor</Badge>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        {pendingChanges.filter(c => c.status === 'pending').map((change) => (
+                          <div
+                            key={change.id}
+                            className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-4">
+                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                                  change.source === 'sheet' 
+                                    ? 'bg-green-100 dark:bg-green-900/30' 
+                                    : 'bg-blue-100 dark:bg-blue-900/30'
+                                }`}>
+                                  {change.source === 'sheet' ? (
+                                    <FileSpreadsheet className="w-5 h-5 text-green-600" />
+                                  ) : (
+                                    <Database className="w-5 h-5 text-blue-600" />
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-slate-900 dark:text-white">
+                                      {change.table} #{change.record_id}
+                                    </span>
+                                    <Badge variant="outline" className="text-xs">
+                                      {change.field}
+                                    </Badge>
+                                  </div>
+                                  <div className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                                    <span className="line-through">{change.old_value || '(boş)'}</span>
+                                    <ChevronRight className="w-4 h-4" />
+                                    <span className="text-green-600 dark:text-green-400">{change.new_value || '(boş)'}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleRejectChange(change.id)}
+                                  className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                                >
+                                  <X className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleApplyChange(change.id)}
+                                  className="bg-green-500 hover:bg-green-600"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    </ProtectedRoute>
+  )
+}

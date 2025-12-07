@@ -58,7 +58,13 @@ export default function ExportPage() {
     status: 'idle' | 'running' | 'success' | 'error'
     message: string
     sheetUrl?: string
+    syncConfigId?: number
   }>({ status: 'idle', message: '' })
+  
+  // Sync options
+  const [enableSync, setEnableSync] = useState(false)
+  const [bidirectional, setBidirectional] = useState(false)
+  const [syncInterval, setSyncInterval] = useState(5)
 
   // Fetch table counts on mount
   useEffect(() => {
@@ -167,10 +173,19 @@ export default function ExportPage() {
         sheetName: sheetMode === 'new' ? sheetName : undefined,
         sheetId: sheetMode === 'existing' ? existingSheetId : undefined,
         accessToken: session?.accessToken,
-        table_views: Object.keys(tableViews).length > 0 ? tableViews : undefined
+        tableViews: Object.keys(tableViews).length > 0 ? tableViews : undefined,
+        // Sync options
+        enableSync,
+        bidirectional,
+        syncIntervalMinutes: syncInterval
       }
 
-      const response = await fetch(apiUrl('/api/export/sheets'), {
+      // Check if we have an access token
+      if (!session?.accessToken) {
+        throw new Error('AUTH_REQUIRED')
+      }
+
+      const response = await fetch(apiUrl('/api/v1/exports/sheets'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -179,20 +194,43 @@ export default function ExportPage() {
       })
 
       if (!response.ok) {
-        throw new Error('Export failed')
+        const errorData = await response.json().catch(() => ({}))
+        const errorDetail = errorData.detail || 'Export failed'
+        
+        // Check for authentication errors
+        if (response.status === 401 || errorDetail.toLowerCase().includes('token')) {
+          throw new Error('AUTH_EXPIRED')
+        }
+        throw new Error(errorDetail)
       }
 
       const result = await response.json()
       
+      let successMessage = `✅ ${result.total_rows} kayıt başarıyla aktarıldı!`
+      if (result.sync_config_id) {
+        successMessage += bidirectional 
+          ? ' 🔄 Çift yönlü senkronizasyon etkinleştirildi.'
+          : ' ⬆️ Artırımlı güncelleme etkinleştirildi.'
+      }
+      
       setExportStatus({
         status: 'success',
-        message: `✅ ${result.total_rows} kayıt başarıyla aktarıldı!`,
-        sheetUrl: result.sheet_url
+        message: successMessage,
+        sheetUrl: result.sheet_url,
+        syncConfigId: result.sync_config_id
       })
-    } catch (error) {
+    } catch (error: any) {
+      let errorMessage = '❌ Export sırasında hata oluştu. Lütfen tekrar deneyin.'
+      
+      if (error.message === 'AUTH_REQUIRED' || error.message === 'AUTH_EXPIRED') {
+        errorMessage = '🔐 Google oturumunuz sona ermiş. Lütfen çıkış yapıp tekrar giriş yapın.'
+      } else if (error.message) {
+        errorMessage = `❌ ${error.message}`
+      }
+      
       setExportStatus({
         status: 'error',
-        message: '❌ Export sırasında hata oluştu. Lütfen tekrar deneyin.'
+        message: errorMessage
       })
     } finally {
       setExporting(false)
@@ -488,6 +526,89 @@ export default function ExportPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Sync Options */}
+                <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                    🔄 Senkronizasyon Seçenekleri
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    {/* Enable Sync Toggle */}
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={enableSync}
+                        onChange={(e) => setEnableSync(e.target.checked)}
+                        className="w-5 h-5 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                      />
+                      <div>
+                        <div className="font-medium text-slate-900 dark:text-white">
+                          Artırımlı Güncelleme
+                        </div>
+                        <div className="text-sm text-slate-500 dark:text-slate-400">
+                          Bitrix24'te yapılan değişiklikler otomatik olarak E-Tabloya aktarılır
+                        </div>
+                      </div>
+                    </label>
+
+                    {enableSync && (
+                      <>
+                        {/* Bidirectional Sync */}
+                        <label className="flex items-center gap-3 cursor-pointer ml-8">
+                          <input
+                            type="checkbox"
+                            checked={bidirectional}
+                            onChange={(e) => setBidirectional(e.target.checked)}
+                            className="w-5 h-5 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                          />
+                          <div>
+                            <div className="font-medium text-slate-900 dark:text-white flex items-center gap-2">
+                              Çift Yönlü Senkronizasyon
+                              <span className="text-xs bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 px-2 py-0.5 rounded">
+                                BETA
+                              </span>
+                            </div>
+                            <div className="text-sm text-slate-500 dark:text-slate-400">
+                              E-Tabloda yapılan değişiklikler Bitrix24'e aktarılır
+                            </div>
+                          </div>
+                        </label>
+
+                        {/* Sync Interval */}
+                        <div className="ml-8">
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                            Güncelleme Aralığı
+                          </label>
+                          <select
+                            value={syncInterval}
+                            onChange={(e) => setSyncInterval(parseInt(e.target.value))}
+                            className="px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                          >
+                            <option value={5}>Her 5 dakika</option>
+                            <option value={15}>Her 15 dakika</option>
+                            <option value={30}>Her 30 dakika</option>
+                            <option value={60}>Her 1 saat</option>
+                            <option value={360}>Her 6 saat</option>
+                            <option value={1440}>Günde bir</option>
+                          </select>
+                        </div>
+
+                        {bidirectional && (
+                          <div className="ml-8 bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                            <div className="flex items-start gap-2">
+                              <AlertCircle className="w-5 h-5 text-yellow-500 mt-0.5" />
+                              <div className="text-sm text-slate-700 dark:text-slate-300">
+                                <strong>Dikkat:</strong> E-Tabloda yapılan değişiklikler Bitrix24'e aktarılacaktır. 
+                                ID kolonunu değiştirmemeye dikkat edin.
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -513,6 +634,11 @@ export default function ExportPage() {
                       <div className="text-sm text-slate-600 dark:text-slate-400">
                         • Hedef: {sheetMode === 'new' ? `Yeni e-tablo (${sheetName})` : `Mevcut e-tablo (${existingSheetId})`}
                       </div>
+                      {enableSync && (
+                        <div className="text-sm text-slate-600 dark:text-slate-400">
+                          • Senkronizasyon: <strong>{bidirectional ? '🔄 Çift Yönlü' : '⬆️ Artırımlı Güncelleme'}</strong> (Her {syncInterval} dk)
+                        </div>
+                      )}
                     </div>
                     
                     <button

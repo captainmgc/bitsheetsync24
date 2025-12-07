@@ -17,10 +17,10 @@ interface SheetSelectorProps {
 }
 
 const ENTITY_TYPES = [
-  { value: 'contacts' as const, label: 'Contacts', description: 'CRM Contacts' },
-  { value: 'deals' as const, label: 'Deals', description: 'Sales Deals' },
-  { value: 'companies' as const, label: 'Companies', description: 'Company Records' },
-  { value: 'tasks' as const, label: 'Tasks', description: 'Tasks & Activities' },
+  { value: 'contacts' as const, label: 'Müşteriler', description: 'CRM Müşterileri' },
+  { value: 'deals' as const, label: 'Anlaşmalar', description: 'Satış Anlaşmaları' },
+  { value: 'companies' as const, label: 'Şirketler', description: 'Şirket Kayıtları' },
+  { value: 'tasks' as const, label: 'Görevler', description: 'Görevler ve Aktiviteler' },
 ];
 
 export default function SheetSelector({
@@ -44,7 +44,7 @@ export default function SheetSelector({
     e.preventDefault();
 
     if (!formData.sheet_id.trim()) {
-      alert('Please enter a Sheet ID');
+      alert('Lütfen bir E-Tablo ID girin');
       return;
     }
 
@@ -52,7 +52,7 @@ export default function SheetSelector({
     try {
       const newConfig = await onCreate({
         sheet_id: formData.sheet_id,
-        sheet_name: formData.sheet_name || 'Untitled Sheet',
+        sheet_name: formData.sheet_name || 'İsimsiz E-Tablo',
         gid: formData.gid,
         entity_type: formData.entity_type,
         color_scheme: {
@@ -77,7 +77,7 @@ export default function SheetSelector({
   };
 
   const handleDelete = async (configId: number) => {
-    if (!confirm('Are you sure you want to delete this configuration?')) {
+    if (!confirm('Bu yapılandırmayı silmek istediğinizden emin misiniz?')) {
       return;
     }
 
@@ -99,27 +99,27 @@ export default function SheetSelector({
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-lg font-semibold text-slate-900">Sync Configurations</h3>
-          <p className="text-sm text-slate-600">Manage your Google Sheets sync settings</p>
+          <h3 className="text-lg font-semibold text-slate-900">Senkronizasyon Yapılandırmaları</h3>
+          <p className="text-sm text-slate-600">Google Sheets senkronizasyon ayarlarınızı yönetin</p>
         </div>
 
         <button
           onClick={() => setShowCreateForm(!showCreateForm)}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition"
         >
-          + New Configuration
+          + Yeni Yapılandırma
         </button>
       </div>
 
       {/* Create Form */}
       {showCreateForm && (
         <div className="mb-6 p-6 bg-blue-50 border border-blue-200 rounded-lg">
-          <h4 className="font-semibold text-slate-900 mb-4">Create New Sync Configuration</h4>
+          <h4 className="font-semibold text-slate-900 mb-4">Yeni Senkronizasyon Yapılandırması Oluştur</h4>
 
           <form onSubmit={handleCreate} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-900 mb-1">
-                Sheet ID *
+                E-Tablo ID *
               </label>
               <input
                 type="text"
@@ -129,18 +129,18 @@ export default function SheetSelector({
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
               />
               <p className="text-xs text-slate-600 mt-1">
-                Find this in your Google Sheet URL: docs.google.com/spreadsheets/d/<strong>SHEET_ID</strong>/edit
+                Google Sheet URL'inizde bulabilirsiniz: docs.google.com/spreadsheets/d/<strong>E-TABLO_ID</strong>/edit
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-900 mb-1">
-                  Sheet Name
+                  E-Tablo Adı
                 </label>
                 <input
                   type="text"
-                  placeholder="My Sales Data"
+                  placeholder="Satış Verileri"
                   value={formData.sheet_name}
                   onChange={(e) => setFormData({ ...formData, sheet_name: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
@@ -149,7 +149,7 @@ export default function SheetSelector({
 
               <div>
                 <label className="block text-sm font-medium text-slate-900 mb-1">
-                  Sheet Tab ID (gid)
+                  Sayfa Sekmesi ID (gid)
                 </label>
                 <input
                   type="text"
@@ -158,13 +158,13 @@ export default function SheetSelector({
                   onChange={(e) => setFormData({ ...formData, gid: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                 />
-                <p className="text-xs text-slate-600 mt-1">Usually 0 for first tab</p>
+                <p className="text-xs text-slate-600 mt-1">İlk sekme için genellikle 0</p>
               </div>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-slate-900 mb-3">
-                Sync to Entity Type *
+                Senkronize Edilecek Veri Tipi *
               </label>
               <div className="grid grid-cols-2 gap-2">
                 {ENTITY_TYPES.map((type) => (
@@ -191,14 +191,14 @@ export default function SheetSelector({
                 disabled={isCreating}
                 className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white rounded-lg font-medium transition"
               >
-                {isCreating ? 'Creating...' : 'Create Configuration'}
+                {isCreating ? 'Oluşturuluyor...' : 'Yapılandırma Oluştur'}
               </button>
               <button
                 type="button"
                 onClick={() => setShowCreateForm(false)}
                 className="flex-1 px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-900 rounded-lg font-medium transition"
               >
-                Cancel
+                İptal
               </button>
             </div>
           </form>
@@ -221,12 +221,12 @@ export default function SheetSelector({
               d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
             />
           </svg>
-          <p className="text-slate-600 font-medium mb-4">No configurations yet</p>
+          <p className="text-slate-600 font-medium mb-4">Henüz yapılandırma yok</p>
           <button
             onClick={() => setShowCreateForm(true)}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition"
           >
-            Create Your First Configuration
+            İlk Yapılandırmanızı Oluşturun
           </button>
         </div>
       ) : (
@@ -261,10 +261,10 @@ export default function SheetSelector({
                           : 'bg-slate-100 text-slate-800'
                       }`}
                     >
-                      {config.enabled ? '✓ Active' : 'Disabled'}
+                      {config.enabled ? '✓ Aktif' : 'Devre Dışı'}
                     </span>
                     <span className="px-2 py-1 text-xs font-medium rounded-full bg-slate-100 text-slate-800">
-                      {config.field_mappings.length} fields
+                      {config.field_mappings.length} alan
                     </span>
                   </div>
                 </div>

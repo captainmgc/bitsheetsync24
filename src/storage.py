@@ -257,7 +257,7 @@ UPSERT_SQL = {
     "tasks": """
     INSERT INTO bitrix.tasks (
         bitrix_id, title, description,
-        status, priority,
+        status, status_name, priority,
         responsible_id, created_by, changed_by,
         deadline, start_date_plan, end_date_plan,
         created_date, changed_date, closed_date,
@@ -269,7 +269,7 @@ UPSERT_SQL = {
     )
     VALUES (
         :bitrix_id, :title, :description,
-        :status, :priority,
+        :status, :status_name, :priority,
         :responsible_id, :created_by, :changed_by,
         :deadline, :start_date_plan, :end_date_plan,
         :created_date, :changed_date, :closed_date,
@@ -283,6 +283,7 @@ UPSERT_SQL = {
         title = EXCLUDED.title,
         description = EXCLUDED.description,
         status = EXCLUDED.status,
+        status_name = EXCLUDED.status_name,
         priority = EXCLUDED.priority,
         responsible_id = EXCLUDED.responsible_id,
         created_by = EXCLUDED.created_by,
@@ -599,32 +600,55 @@ def _extract_task_params(item: Dict[str, Any], u_at: Optional[datetime], s_hash:
         except:
             return None
     
+    # Bitrix24 task status mapping
+    STATUS_NAMES = {
+        1: "Yeni",           # New
+        2: "Bekliyor",       # Waiting/Pending
+        3: "Devam Ediyor",   # In Progress
+        4: "Onay Bekliyor",  # Supposedly complete / Pending Approval
+        5: "Tamamlandı",     # Completed
+        6: "Ertelendi",      # Deferred
+        7: "Reddedildi",     # Declined
+    }
+    
+    # Handle both lowercase (from API) and uppercase (normalized) keys
+    status_raw = item.get("STATUS") or item.get("status")
+    status_val = int(status_raw) if status_raw else 1
+    status_name = STATUS_NAMES.get(status_val, f"Durum {status_val}")
+    
+    # Helper to get value from either case
+    def get_field(upper_key, lower_key=None):
+        if lower_key is None:
+            lower_key = upper_key.lower()
+        return item.get(upper_key) or item.get(lower_key)
+    
     return {
-        "bitrix_id": str(item.get("ID", "")),
-        "title": item.get("TITLE"),
-        "description": item.get("DESCRIPTION"),
-        "status": int(item.get("STATUS", 1)) if item.get("STATUS") else 1,
-        "priority": int(item.get("PRIORITY", 0)) if item.get("PRIORITY") else 0,
-        "responsible_id": str(item.get("RESPONSIBLE_ID")) if item.get("RESPONSIBLE_ID") else None,
-        "created_by": str(item.get("CREATED_BY")) if item.get("CREATED_BY") else None,
-        "changed_by": str(item.get("CHANGED_BY")) if item.get("CHANGED_BY") else None,
-        "deadline": parse_timestamp(item.get("DEADLINE")),
-        "start_date_plan": parse_timestamp(item.get("START_DATE_PLAN")),
-        "end_date_plan": parse_timestamp(item.get("END_DATE_PLAN")),
-        "created_date": parse_timestamp(item.get("CREATED_DATE")),
-        "changed_date": parse_timestamp(item.get("CHANGED_DATE")),
-        "closed_date": parse_timestamp(item.get("CLOSED_DATE")),
-        "duration_plan": int(item.get("DURATION_PLAN", 0)) if item.get("DURATION_PLAN") else None,
-        "duration_fact": int(item.get("DURATION_FACT", 0)) if item.get("DURATION_FACT") else None,
-        "time_estimate": int(item.get("TIME_ESTIMATE", 0)) if item.get("TIME_ESTIMATE") else None,
-        "time_spent_in_logs": int(item.get("TIME_SPENT_IN_LOGS", 0)) if item.get("TIME_SPENT_IN_LOGS") else None,
-        "parent_id": str(item.get("PARENT_ID")) if item.get("PARENT_ID") else None,
-        "group_id": str(item.get("GROUP_ID")) if item.get("GROUP_ID") else None,
-        "tags": item.get("TAGS", "").split(",") if item.get("TAGS") else [],
-        "allow_change_deadline": item.get("ALLOW_CHANGE_DEADLINE") == "Y",
-        "allow_time_tracking": item.get("ALLOW_TIME_TRACKING") == "Y",
-        "comments_count": int(item.get("COMMENTS_COUNT", 0)) if item.get("COMMENTS_COUNT") else 0,
-        "new_comments_count": int(item.get("NEW_COMMENTS_COUNT", 0)) if item.get("NEW_COMMENTS_COUNT") else 0,
+        "bitrix_id": str(get_field("ID", "id") or ""),
+        "title": get_field("TITLE", "title"),
+        "description": get_field("DESCRIPTION", "description"),
+        "status": status_val,
+        "status_name": status_name,
+        "priority": int(get_field("PRIORITY", "priority") or 0),
+        "responsible_id": str(get_field("RESPONSIBLE_ID", "responsibleId")) if get_field("RESPONSIBLE_ID", "responsibleId") else None,
+        "created_by": str(get_field("CREATED_BY", "createdBy")) if get_field("CREATED_BY", "createdBy") else None,
+        "changed_by": str(get_field("CHANGED_BY", "changedBy")) if get_field("CHANGED_BY", "changedBy") else None,
+        "deadline": parse_timestamp(get_field("DEADLINE", "deadline")),
+        "start_date_plan": parse_timestamp(get_field("START_DATE_PLAN", "startDatePlan")),
+        "end_date_plan": parse_timestamp(get_field("END_DATE_PLAN", "endDatePlan")),
+        "created_date": parse_timestamp(get_field("CREATED_DATE", "createdDate")),
+        "changed_date": parse_timestamp(get_field("CHANGED_DATE", "changedDate")),
+        "closed_date": parse_timestamp(get_field("CLOSED_DATE", "closedDate")),
+        "duration_plan": int(get_field("DURATION_PLAN", "durationPlan") or 0) if get_field("DURATION_PLAN", "durationPlan") else None,
+        "duration_fact": int(get_field("DURATION_FACT", "durationFact") or 0) if get_field("DURATION_FACT", "durationFact") else None,
+        "time_estimate": int(get_field("TIME_ESTIMATE", "timeEstimate") or 0) if get_field("TIME_ESTIMATE", "timeEstimate") else None,
+        "time_spent_in_logs": int(get_field("TIME_SPENT_IN_LOGS", "timeSpentInLogs") or 0) if get_field("TIME_SPENT_IN_LOGS", "timeSpentInLogs") else None,
+        "parent_id": str(get_field("PARENT_ID", "parentId")) if get_field("PARENT_ID", "parentId") else None,
+        "group_id": str(get_field("GROUP_ID", "groupId")) if get_field("GROUP_ID", "groupId") else None,
+        "tags": (get_field("TAGS", "tags") or "").split(",") if get_field("TAGS", "tags") else [],
+        "allow_change_deadline": get_field("ALLOW_CHANGE_DEADLINE", "allowChangeDeadline") == "Y",
+        "allow_time_tracking": get_field("ALLOW_TIME_TRACKING", "allowTimeTracking") == "Y",
+        "comments_count": int(get_field("COMMENTS_COUNT", "commentsCount") or 0),
+        "new_comments_count": int(get_field("NEW_COMMENTS_COUNT", "newCommentsCount") or 0),
         "original_data": json_lib.dumps(item, ensure_ascii=False),
         "updated_at": u_at,
         "source_hash": s_hash,

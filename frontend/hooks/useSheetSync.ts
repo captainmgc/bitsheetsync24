@@ -109,6 +109,165 @@ export interface ReverseSyncSetupResult {
   error?: string;
 }
 
+// Change Detection Types
+export interface CellChange {
+  row: number;
+  column: number;
+  column_name: string;
+  old_value: string | null;
+  new_value: string | null;
+  change_type: 'added' | 'modified' | 'deleted' | 'unchanged';
+  bitrix_field: string | null;
+  is_editable: boolean;
+}
+
+export interface RowChange {
+  row_number: number;
+  entity_id: string | null;
+  change_type: 'added' | 'modified' | 'deleted' | 'unchanged';
+  cell_changes: CellChange[];
+  total_changes: number;
+  editable_changes: number;
+}
+
+export interface ChangeDetectionResult {
+  config_id: number;
+  sheet_id: string;
+  detected_at: string;
+  has_changes: boolean;
+  total_rows_scanned: number;
+  total_changed_rows: number;
+  total_changed_cells: number;
+  headers: string[];
+  row_changes: RowChange[];
+  error?: string;
+}
+
+export interface ChangesSummary {
+  config_id: number;
+  has_changes: boolean;
+  total_changed_rows: number;
+  total_changed_cells: number;
+  editable_changes: number;
+  readonly_changes: number;
+  last_check_at: string;
+  error?: string;
+}
+
+export interface RowComparison {
+  column: number;
+  column_name: string;
+  current_value: string | null;
+  stored_value: string | null;
+  is_changed: boolean;
+}
+
+export interface RowDetails {
+  row_number: number;
+  entity_id: string | null;
+  last_sync_at: string | null;
+  comparison: RowComparison[];
+}
+
+// Reverse Sync Types
+export interface SyncRowResult {
+  row_number: number;
+  entity_id: string | null;
+  success: boolean;
+  error: string | null;
+  fields_synced: string[];
+  synced_at: string | null;
+}
+
+export interface BatchSyncResult {
+  started_at: string;
+  completed_at: string | null;
+  total_rows: number;
+  successful: number;
+  failed: number;
+  skipped: number;
+  results: SyncRowResult[];
+  error?: string;
+  message?: string;
+}
+
+export interface ReverseSyncHistory {
+  id: number;
+  entity_id: number | null;
+  row_number: number | null;
+  status: 'pending' | 'syncing' | 'completed' | 'failed';
+  changed_fields: Record<string, unknown>;
+  error: string | null;
+  created_at: string;
+  synced_at: string | null;
+}
+
+// Conflict Management Types
+export type ConflictType = 'both_modified' | 'bitrix_newer' | 'sheet_newer' | 'deleted_in_bitrix' | 'deleted_in_sheet';
+export type ResolutionStrategy = 'use_bitrix' | 'use_sheet' | 'merge' | 'skip' | 'manual' | 'use_newer';
+
+export interface FieldConflict {
+  field_name: string;
+  column_name: string;
+  column_index: number;
+  bitrix_field: string;
+  bitrix_value: unknown;
+  sheet_value: unknown;
+  conflict_type: ConflictType;
+  suggested_resolution: ResolutionStrategy;
+  resolved: boolean;
+}
+
+export interface RowConflict {
+  row_number: number;
+  entity_id: string;
+  entity_type: string;
+  conflict_count: number;
+  unresolved_count: number;
+  field_conflicts: FieldConflict[];
+}
+
+export interface ConflictDetectionResult {
+  config_id: number;
+  detected_at: string;
+  total_rows_checked: number;
+  conflicts_found: number;
+  has_conflicts: boolean;
+  row_conflicts: RowConflict[];
+  error?: string;
+}
+
+export interface ConflictResolutionResult {
+  success: boolean;
+  action?: string;
+  field?: string;
+  resolution?: string;
+  resolved_value?: unknown;
+  target?: string;
+  error?: string;
+}
+
+export interface RowConflictResolutionResult {
+  success: boolean;
+  total: number;
+  successful: number;
+  failed: number;
+  results: ConflictResolutionResult[];
+  message?: string;
+  error?: string;
+}
+
+export interface ConflictHistoryItem {
+  id: number;
+  row_number: number | null;
+  entity_id: string | null;
+  status: string;
+  changed_fields: Record<string, unknown>;
+  error: string | null;
+  created_at: string | null;
+  synced_at: string | null;
+}
+
 interface UseSheetSyncReturn {
   // State
   isLoading: boolean;
@@ -138,13 +297,32 @@ interface UseSheetSyncReturn {
   retryFailedSyncs: (configId: number) => Promise<boolean>;
   getSyncStatus: (logId: number) => Promise<SyncLog | null>;
 
-  // Reverse Sync (NEW)
+  // Reverse Sync
   getBitrixFields: (entityType: string, editableOnly?: boolean) => Promise<BitrixFieldSummary | null>;
   getAllBitrixFieldsSummary: () => Promise<Record<string, { total: number; editable: number; readonly: number }> | null>;
   setupReverseSync: (configId: number) => Promise<ReverseSyncSetupResult | null>;
   formatSheet: (configId: number, addStatusColumn?: boolean) => Promise<boolean>;
   installWebhook: (configId: number) => Promise<boolean>;
   uninstallWebhook: (configId: number) => Promise<boolean>;
+
+  // Change Detection
+  detectChanges: (configId: number, rowLimit?: number) => Promise<ChangeDetectionResult | null>;
+  getRowDetails: (configId: number, rowNumber: number) => Promise<RowDetails | null>;
+  saveSnapshot: (configId: number) => Promise<boolean>;
+  getChangesSummary: (configId: number) => Promise<ChangesSummary | null>;
+
+  // Reverse Sync (Sheet → Bitrix24)
+  syncAllChanges: (configId: number) => Promise<BatchSyncResult | null>;
+  syncSelectedRows: (configId: number, rowNumbers: number[]) => Promise<BatchSyncResult | null>;
+  syncSingleRow: (configId: number, rowNumber: number) => Promise<SyncRowResult | null>;
+  getReverseSyncHistory: (configId: number, statusFilter?: string, limit?: number) => Promise<ReverseSyncHistory[]>;
+  retryFailedReverseSyncs: (configId: number, logIds?: number[]) => Promise<BatchSyncResult | null>;
+
+  // Conflict Management
+  detectConflicts: (configId: number, rowNumbers?: number[], checkAll?: boolean) => Promise<ConflictDetectionResult | null>;
+  resolveConflict: (configId: number, rowNumber: number, fieldName: string, resolution: ResolutionStrategy, customValue?: string) => Promise<ConflictResolutionResult | null>;
+  resolveRowConflicts: (configId: number, rowNumber: number, resolution: ResolutionStrategy) => Promise<RowConflictResolutionResult | null>;
+  getConflictHistory: (configId: number, limit?: number) => Promise<ConflictHistoryItem[]>;
 }
 
 export function useSheetSync(): UseSheetSyncReturn {
@@ -877,6 +1055,532 @@ export function useSheetSync(): UseSheetSyncReturn {
     [userId, currentConfig?.id]
   );
 
+  // =========================================================================
+  // CHANGE DETECTION METHODS
+  // =========================================================================
+
+  const detectChanges = useCallback(
+    async (configId: number, rowLimit?: number): Promise<ChangeDetectionResult | null> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        let url = `${API_BASE}/api/v1/sheet-sync/changes/detect/${configId}?user_id=${userId}`;
+        if (rowLimit) {
+          url += `&row_limit=${rowLimit}`;
+        }
+
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Değişiklik algılama başarısız');
+        }
+
+        const result = await response.json();
+        return result as ChangeDetectionResult;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Değişiklik algılama başarısız';
+        setError(errorMsg);
+        console.error('Detect changes error:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  const getRowDetails = useCallback(
+    async (configId: number, rowNumber: number): Promise<RowDetails | null> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        const response = await fetch(
+          `${API_BASE}/api/v1/sheet-sync/changes/row/${configId}/${rowNumber}?user_id=${userId}`,
+          {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Satır detayları alınamadı');
+        }
+
+        const result = await response.json();
+        return result as RowDetails;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Satır detayları alınamadı';
+        setError(errorMsg);
+        console.error('Get row details error:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  const saveSnapshot = useCallback(
+    async (configId: number): Promise<boolean> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        const response = await fetch(
+          `${API_BASE}/api/v1/sheet-sync/changes/snapshot/${configId}?user_id=${userId}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Anlık görüntü kaydedilemedi');
+        }
+
+        const result = await response.json();
+        return result.success;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Anlık görüntü kaydedilemedi';
+        setError(errorMsg);
+        console.error('Save snapshot error:', err);
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  const getChangesSummary = useCallback(
+    async (configId: number): Promise<ChangesSummary | null> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        const response = await fetch(
+          `${API_BASE}/api/v1/sheet-sync/changes/summary/${configId}?user_id=${userId}`,
+          {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Değişiklik özeti alınamadı');
+        }
+
+        const result = await response.json();
+        return result as ChangesSummary;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Değişiklik özeti alınamadı';
+        setError(errorMsg);
+        console.error('Get changes summary error:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  // =========================================================================
+  // REVERSE SYNC METHODS (Sheet → Bitrix24)
+  // =========================================================================
+
+  const syncAllChanges = useCallback(
+    async (configId: number): Promise<BatchSyncResult | null> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        const response = await fetch(
+          `${API_BASE}/api/v1/sheet-sync/reverse-sync/sync-all/${configId}?user_id=${userId}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Senkronizasyon başarısız');
+        }
+
+        const result = await response.json();
+        return result as BatchSyncResult;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Senkronizasyon başarısız';
+        setError(errorMsg);
+        console.error('Sync all changes error:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  const syncSelectedRows = useCallback(
+    async (configId: number, rowNumbers: number[]): Promise<BatchSyncResult | null> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        const rowParams = rowNumbers.map(r => `row_numbers=${r}`).join('&');
+        const response = await fetch(
+          `${API_BASE}/api/v1/sheet-sync/reverse-sync/sync-rows/${configId}?user_id=${userId}&${rowParams}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Seçili satırlar senkronize edilemedi');
+        }
+
+        const result = await response.json();
+        return result as BatchSyncResult;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Seçili satırlar senkronize edilemedi';
+        setError(errorMsg);
+        console.error('Sync selected rows error:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  const syncSingleRow = useCallback(
+    async (configId: number, rowNumber: number): Promise<SyncRowResult | null> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        const response = await fetch(
+          `${API_BASE}/api/v1/sheet-sync/reverse-sync/sync-row/${configId}/${rowNumber}?user_id=${userId}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Satır senkronize edilemedi');
+        }
+
+        const result = await response.json();
+        return result as SyncRowResult;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Satır senkronize edilemedi';
+        setError(errorMsg);
+        console.error('Sync single row error:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  const getReverseSyncHistory = useCallback(
+    async (configId: number, statusFilter?: string, limit?: number): Promise<ReverseSyncHistory[]> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        let url = `${API_BASE}/api/v1/sheet-sync/reverse-sync/history/${configId}?user_id=${userId}`;
+        if (statusFilter) {
+          url += `&status_filter=${statusFilter}`;
+        }
+        if (limit) {
+          url += `&limit=${limit}`;
+        }
+
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Senkronizasyon geçmişi alınamadı');
+        }
+
+        const result = await response.json();
+        return result as ReverseSyncHistory[];
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Senkronizasyon geçmişi alınamadı';
+        setError(errorMsg);
+        console.error('Get reverse sync history error:', err);
+        return [];
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  const retryFailedReverseSyncs = useCallback(
+    async (configId: number, logIds?: number[]): Promise<BatchSyncResult | null> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        let url = `${API_BASE}/api/v1/sheet-sync/reverse-sync/retry/${configId}?user_id=${userId}`;
+        if (logIds && logIds.length > 0) {
+          const logParams = logIds.map(id => `log_ids=${id}`).join('&');
+          url += `&${logParams}`;
+        }
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Başarısız senkronizasyonlar tekrar denenemedi');
+        }
+
+        const result = await response.json();
+        return result as BatchSyncResult;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Başarısız senkronizasyonlar tekrar denenemedi';
+        setError(errorMsg);
+        console.error('Retry failed reverse syncs error:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  // =========================================================================
+  // CONFLICT MANAGEMENT METHODS
+  // =========================================================================
+
+  const detectConflicts = useCallback(
+    async (
+      configId: number,
+      rowNumbers?: number[],
+      checkAll?: boolean
+    ): Promise<ConflictDetectionResult | null> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        let url = `${API_BASE}/api/v1/sheet-sync/conflicts/detect/${configId}?user_id=${userId}`;
+        if (rowNumbers && rowNumbers.length > 0) {
+          url += `&row_numbers=${rowNumbers.join(',')}`;
+        }
+        if (checkAll) {
+          url += '&check_all=true';
+        }
+
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Çakışmalar algılanamadı');
+        }
+
+        const result = await response.json();
+        return result as ConflictDetectionResult;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Çakışmalar algılanamadı';
+        setError(errorMsg);
+        console.error('Detect conflicts error:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  const resolveConflict = useCallback(
+    async (
+      configId: number,
+      rowNumber: number,
+      fieldName: string,
+      resolution: ResolutionStrategy,
+      customValue?: string
+    ): Promise<ConflictResolutionResult | null> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        let url = `${API_BASE}/api/v1/sheet-sync/conflicts/resolve/${configId}?user_id=${userId}&row_number=${rowNumber}&field_name=${encodeURIComponent(fieldName)}&resolution=${resolution}`;
+        if (customValue) {
+          url += `&custom_value=${encodeURIComponent(customValue)}`;
+        }
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Çakışma çözülemedi');
+        }
+
+        const result = await response.json();
+        return result as ConflictResolutionResult;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Çakışma çözülemedi';
+        setError(errorMsg);
+        console.error('Resolve conflict error:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  const resolveRowConflicts = useCallback(
+    async (
+      configId: number,
+      rowNumber: number,
+      resolution: ResolutionStrategy
+    ): Promise<RowConflictResolutionResult | null> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        const url = `${API_BASE}/api/v1/sheet-sync/conflicts/resolve-row/${configId}?user_id=${userId}&row_number=${rowNumber}&resolution=${resolution}`;
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Satır çakışmaları çözülemedi');
+        }
+
+        const result = await response.json();
+        return result as RowConflictResolutionResult;
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Satır çakışmaları çözülemedi';
+        setError(errorMsg);
+        console.error('Resolve row conflicts error:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId]
+  );
+
+  const getConflictHistory = useCallback(
+    async (configId: number, limit?: number): Promise<ConflictHistoryItem[]> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        if (!userId) {
+          throw new Error('User ID not found');
+        }
+
+        let url = `${API_BASE}/api/v1/sheet-sync/conflicts/history/${configId}?user_id=${userId}`;
+        if (limit) {
+          url += `&limit=${limit}`;
+        }
+
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Çakışma geçmişi alınamadı');
+        }
+
+        const result = await response.json();
+        return result.history as ConflictHistoryItem[];
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Çakışma geçmişi alınamadı';
+        setError(errorMsg);
+        console.error('Get conflict history error:', err);
+        return [];
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [userId]
+  );
+
   return {
     // State
     isLoading,
@@ -906,12 +1610,31 @@ export function useSheetSync(): UseSheetSyncReturn {
     retryFailedSyncs,
     getSyncStatus,
 
-    // Reverse Sync (NEW)
+    // Reverse Sync Setup
     getBitrixFields,
     getAllBitrixFieldsSummary,
     setupReverseSync,
     formatSheet,
     installWebhook,
     uninstallWebhook,
+
+    // Change Detection
+    detectChanges,
+    getRowDetails,
+    saveSnapshot,
+    getChangesSummary,
+
+    // Reverse Sync (Sheet → Bitrix24)
+    syncAllChanges,
+    syncSelectedRows,
+    syncSingleRow,
+    getReverseSyncHistory,
+    retryFailedReverseSyncs,
+
+    // Conflict Management
+    detectConflicts,
+    resolveConflict,
+    resolveRowConflicts,
+    getConflictHistory,
   };
 }

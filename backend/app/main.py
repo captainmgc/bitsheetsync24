@@ -9,7 +9,7 @@ import structlog
 
 from app.config import settings
 from app.database import init_db, close_db
-from app.api import exports, webhooks, tables, data, views, sheet_sync, lookups, ai_summary, setup, sync
+from app.api import exports, webhooks, tables, data, views, sheet_sync, lookups, ai_summary, setup, sync, dashboard, ai_predictions, errors, sync_center, bidirectional_sync, advanced_views, customer360
 
 # Configure structured logging
 structlog.configure(
@@ -72,16 +72,23 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(exports.router, prefix="/api/exports", tags=["Exports"])
+app.include_router(exports.router, prefix="/api/v1/exports", tags=["Exports"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(tables.router, prefix="/api/tables", tags=["Tables"])
 app.include_router(data.router, prefix="/api/data", tags=["Data"])
 app.include_router(views.router, prefix="/api/views", tags=["Views"])
+app.include_router(advanced_views.router, prefix="/api/advanced-views", tags=["Advanced Views"])
 app.include_router(lookups.router, prefix="/api/lookups", tags=["Lookups"])
 app.include_router(sheet_sync.router)  # Includes its own prefix /api/v1/sheet-sync
 app.include_router(ai_summary.router)  # AI Summary endpoints /api/v1/ai-summary
+app.include_router(ai_predictions.router)  # AI Predictions endpoints /api/v1/predictions
 app.include_router(setup.router)  # Setup wizard endpoints /api/v1/setup
 app.include_router(sync.router, prefix="/api/sync")  # Sync management endpoints /api/sync
+app.include_router(dashboard.router)  # Dashboard endpoints /api/v1/dashboard
+app.include_router(errors.router)  # Error logs endpoints /api/v1/errors
+app.include_router(sync_center.router)  # Sync Center endpoints /api/v1/sync-center
+app.include_router(bidirectional_sync.router)  # Bidirectional sync /api/v1/bidirectional-sync
+app.include_router(customer360.router, prefix="/api/v1/customer360", tags=["Customer 360°"])
 
 
 @app.get("/")

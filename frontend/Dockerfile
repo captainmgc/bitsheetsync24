@@ -8,7 +8,7 @@ WORKDIR /app
 
 # Copy package files
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm install --legacy-peer-deps
 
 # Rebuild the source code only when needed
 FROM base AS builder
@@ -16,14 +16,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build arguments for environment
-ARG NEXT_PUBLIC_API_URL
-ARG NEXTAUTH_URL
-ARG NEXTAUTH_SECRET
-
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ENV NEXTAUTH_URL=$NEXTAUTH_URL
-ENV NEXTAUTH_SECRET=$NEXTAUTH_SECRET
+# Set production environment for build
+ENV NODE_ENV=production
+ENV NEXT_PUBLIC_API_URL=https://etablo.japonkonutlari.com
 
 # Build the application
 RUN npm run build

@@ -1700,3 +1700,1151 @@ async def setup_reverse_sync(
             detail=str(e),
         )
 
+
+# ============================================================================
+# CHANGE DETECTION ENDPOINTS
+# ============================================================================
+
+
+@router.get("/changes/detect/{config_id}")
+async def detect_sheet_changes(
+    config_id: int,
+    user_id: str = Query(...),
+    row_limit: int = Query(None, description="Limit rows to check (for large sheets)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Detect changes in Google Sheet compared to last synced data
+    
+    Path params:
+    - config_id: Sync configuration ID
+    
+    Query params:
+    - user_id: User ID
+    - row_limit: Optional limit on rows to check
+    
+    Response:
+    {
+        "config_id": 1,
+        "sheet_id": "abc123",
+        "detected_at": "2025-11-29T10:00:00",
+        "has_changes": true,
+        "total_rows_scanned": 100,
+        "total_changed_rows": 5,
+        "total_changed_cells": 12,
+        "headers": ["ID", "Name", "Email", ...],
+        "row_changes": [
+            {
+                "row_number": 2,
+                "entity_id": "123",
+                "change_type": "modified",
+                "cell_changes": [
+                    {
+                        "row": 2,
+                        "column": 1,
+                        "column_name": "Name",
+                        "old_value": "John",
+                        "new_value": "John Doe",
+                        "change_type": "modified",
+                        "bitrix_field": "TITLE",
+                        "is_editable": true
+                    }
+                ],
+                "total_changes": 1,
+                "editable_changes": 1
+            }
+        ]
+    }
+    """
+    from app.services.change_detector import ChangeDetector
+    
+    try:
+        # Get user token
+        stmt = select(UserSheetsToken).where(UserSheetsToken.user_id == user_id)
+        result = await db.execute(stmt)
+        token_record = result.scalar_one_or_none()
+        
+        if not token_record or not token_record.access_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Google Sheets bağlantısı bulunamadı",
+            )
+        
+        # Get valid token
+        oauth_auth = GoogleSheetsAuth()
+        token = await oauth_auth.get_valid_access_token(db, user_id)
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token yenileme başarısız",
+            )
+        
+        # Detect changes
+        detector = ChangeDetector(token)
+        
+        try:
+            result = await detector.detect_changes(
+                db=db,
+                config_id=config_id,
+                row_limit=row_limit,
+            )
+            
+            return result.to_dict()
+            
+        finally:
+            await detector.close()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("detect_changes_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.get("/changes/row/{config_id}/{row_number}")
+async def get_row_change_details(
+    config_id: int,
+    row_number: int,
+    user_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get detailed comparison for a specific row
+    
+    Path params:
+    - config_id: Sync configuration ID
+    - row_number: Row number to get details for
+    
+    Query params:
+    - user_id: User ID
+    
+    Response:
+    {
+        "row_number": 2,
+        "entity_id": "123",
+        "last_sync_at": "2025-11-29T10:00:00",
+        "comparison": [
+            {
+                "column": 0,
+                "column_name": "ID",
+                "current_value": "123",
+                "stored_value": "123",
+                "is_changed": false
+            },
+            {
+                "column": 1,
+                "column_name": "Name",
+                "current_value": "John Doe",
+                "stored_value": "John",
+                "is_changed": true
+            }
+        ]
+    }
+    """
+    from app.services.change_detector import ChangeDetector
+    
+    try:
+        # Get user token
+        stmt = select(UserSheetsToken).where(UserSheetsToken.user_id == user_id)
+        result = await db.execute(stmt)
+        token_record = result.scalar_one_or_none()
+        
+        if not token_record or not token_record.access_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Google Sheets bağlantısı bulunamadı",
+            )
+        
+        # Get valid token
+        oauth_auth = GoogleSheetsAuth()
+        token = await oauth_auth.get_valid_access_token(db, user_id)
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token yenileme başarısız",
+            )
+        
+        # Get row details
+        detector = ChangeDetector(token)
+        
+        try:
+            result = await detector.get_row_details(
+                db=db,
+                config_id=config_id,
+                row_number=row_number,
+            )
+            
+            if not result:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Satır bulunamadı",
+                )
+            
+            return result
+            
+        finally:
+            await detector.close()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("get_row_details_failed", config_id=config_id, row=row_number, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/changes/snapshot/{config_id}")
+async def save_sheet_snapshot(
+    config_id: int,
+    user_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Save current sheet state as snapshot for future change detection
+    
+    Path params:
+    - config_id: Sync configuration ID
+    
+    Query params:
+    - user_id: User ID
+    
+    Response:
+    {
+        "success": true,
+        "config_id": 1,
+        "message": "Anlık görüntü kaydedildi"
+    }
+    """
+    from app.services.change_detector import ChangeDetector
+    
+    try:
+        # Get user token
+        stmt = select(UserSheetsToken).where(UserSheetsToken.user_id == user_id)
+        result = await db.execute(stmt)
+        token_record = result.scalar_one_or_none()
+        
+        if not token_record or not token_record.access_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Google Sheets bağlantısı bulunamadı",
+            )
+        
+        # Get valid token
+        oauth_auth = GoogleSheetsAuth()
+        token = await oauth_auth.get_valid_access_token(db, user_id)
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token yenileme başarısız",
+            )
+        
+        # Save snapshot
+        detector = ChangeDetector(token)
+        
+        try:
+            success = await detector.save_snapshot(
+                db=db,
+                config_id=config_id,
+            )
+            
+            if not success:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Anlık görüntü kaydedilemedi",
+                )
+            
+            return {
+                "success": True,
+                "config_id": config_id,
+                "message": "Anlık görüntü kaydedildi",
+            }
+            
+        finally:
+            await detector.close()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("save_snapshot_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.get("/changes/summary/{config_id}")
+async def get_changes_summary(
+    config_id: int,
+    user_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get a quick summary of changes without full details
+    
+    Path params:
+    - config_id: Sync configuration ID
+    
+    Query params:
+    - user_id: User ID
+    
+    Response:
+    {
+        "config_id": 1,
+        "has_changes": true,
+        "total_changed_rows": 5,
+        "total_changed_cells": 12,
+        "editable_changes": 8,
+        "readonly_changes": 4,
+        "last_check_at": "2025-11-29T10:00:00"
+    }
+    """
+    from app.services.change_detector import ChangeDetector
+    
+    try:
+        # Get user token
+        stmt = select(UserSheetsToken).where(UserSheetsToken.user_id == user_id)
+        result = await db.execute(stmt)
+        token_record = result.scalar_one_or_none()
+        
+        if not token_record or not token_record.access_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Google Sheets bağlantısı bulunamadı",
+            )
+        
+        # Get valid token
+        oauth_auth = GoogleSheetsAuth()
+        token = await oauth_auth.get_valid_access_token(db, user_id)
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token yenileme başarısız",
+            )
+        
+        # Detect changes
+        detector = ChangeDetector(token)
+        
+        try:
+            detection_result = await detector.detect_changes(
+                db=db,
+                config_id=config_id,
+            )
+            
+            # Count editable vs readonly changes
+            editable_changes = 0
+            readonly_changes = 0
+            
+            for row_change in detection_result.row_changes:
+                for cell_change in row_change.cell_changes:
+                    if cell_change.is_editable:
+                        editable_changes += 1
+                    else:
+                        readonly_changes += 1
+            
+            return {
+                "config_id": config_id,
+                "has_changes": detection_result.has_changes,
+                "total_changed_rows": detection_result.total_changed_rows,
+                "total_changed_cells": detection_result.total_changed_cells,
+                "editable_changes": editable_changes,
+                "readonly_changes": readonly_changes,
+                "last_check_at": detection_result.detected_at.isoformat(),
+                "error": detection_result.error,
+            }
+            
+        finally:
+            await detector.close()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("get_changes_summary_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+# ============================================================================
+# REVERSE SYNC ENDPOINTS (SHEET → BITRIX24)
+# ============================================================================
+
+
+@router.post("/reverse-sync/sync-all/{config_id}")
+async def sync_all_changes_to_bitrix(
+    config_id: int,
+    user_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Sync all detected changes from Google Sheets to Bitrix24
+    
+    Path params:
+    - config_id: Sync configuration ID
+    
+    Query params:
+    - user_id: User ID
+    
+    Response:
+    {
+        "started_at": "2025-11-29T10:00:00",
+        "completed_at": "2025-11-29T10:00:05",
+        "total_rows": 5,
+        "successful": 4,
+        "failed": 1,
+        "skipped": 0,
+        "results": [...]
+    }
+    """
+    from app.services.change_detector import ChangeDetector
+    from app.services.reverse_sync import ReverseSyncService
+    
+    try:
+        # Get user token for Google Sheets
+        stmt = select(UserSheetsToken).where(UserSheetsToken.user_id == user_id)
+        result = await db.execute(stmt)
+        token_record = result.scalar_one_or_none()
+        
+        if not token_record or not token_record.access_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Google Sheets bağlantısı bulunamadı",
+            )
+        
+        # Get config for Bitrix webhook URL
+        stmt_config = select(SheetSyncConfig).where(SheetSyncConfig.id == config_id)
+        result_config = await db.execute(stmt_config)
+        config = result_config.scalars().first()
+        
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Yapılandırma bulunamadı",
+            )
+        
+        if not config.webhook_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bitrix24 webhook URL tanımlı değil",
+            )
+        
+        # Get valid access token
+        oauth_auth = GoogleSheetsAuth()
+        token = await oauth_auth.get_valid_access_token(db, user_id)
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token yenileme başarısız",
+            )
+        
+        # Detect changes first
+        detector = ChangeDetector(token)
+        
+        try:
+            detection_result = await detector.detect_changes(db, config_id)
+            
+            if not detection_result.has_changes:
+                return {
+                    "started_at": datetime.utcnow().isoformat(),
+                    "completed_at": datetime.utcnow().isoformat(),
+                    "total_rows": 0,
+                    "successful": 0,
+                    "failed": 0,
+                    "skipped": 0,
+                    "message": "Değişiklik bulunamadı",
+                    "results": [],
+                }
+            
+            # Sync changes to Bitrix24
+            reverse_sync = ReverseSyncService(
+                bitrix_webhook_url=config.webhook_url,
+                access_token=token,
+            )
+            
+            batch_result = await reverse_sync.sync_all_changes(
+                db=db,
+                config_id=config_id,
+                detection_result=detection_result,
+            )
+            
+            return batch_result.to_dict()
+            
+        finally:
+            await detector.close()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("sync_all_changes_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/reverse-sync/sync-rows/{config_id}")
+async def sync_selected_rows_to_bitrix(
+    config_id: int,
+    user_id: str = Query(...),
+    row_numbers: List[int] = Query(..., description="Row numbers to sync"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Sync selected rows from Google Sheets to Bitrix24
+    
+    Path params:
+    - config_id: Sync configuration ID
+    
+    Query params:
+    - user_id: User ID
+    - row_numbers: List of row numbers to sync
+    
+    Response:
+    {
+        "started_at": "2025-11-29T10:00:00",
+        "completed_at": "2025-11-29T10:00:05",
+        "total_rows": 3,
+        "successful": 2,
+        "failed": 1,
+        "results": [...]
+    }
+    """
+    from app.services.change_detector import ChangeDetector
+    from app.services.reverse_sync import ReverseSyncService
+    
+    try:
+        # Get user token
+        stmt = select(UserSheetsToken).where(UserSheetsToken.user_id == user_id)
+        result = await db.execute(stmt)
+        token_record = result.scalar_one_or_none()
+        
+        if not token_record or not token_record.access_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Google Sheets bağlantısı bulunamadı",
+            )
+        
+        # Get config
+        stmt_config = select(SheetSyncConfig).where(SheetSyncConfig.id == config_id)
+        result_config = await db.execute(stmt_config)
+        config = result_config.scalars().first()
+        
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Yapılandırma bulunamadı",
+            )
+        
+        if not config.webhook_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bitrix24 webhook URL tanımlı değil",
+            )
+        
+        # Get valid access token
+        oauth_auth = GoogleSheetsAuth()
+        token = await oauth_auth.get_valid_access_token(db, user_id)
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token yenileme başarısız",
+            )
+        
+        # Detect changes
+        detector = ChangeDetector(token)
+        
+        try:
+            detection_result = await detector.detect_changes(db, config_id)
+            
+            # Filter to only selected rows
+            selected_changes = [
+                row for row in detection_result.row_changes
+                if row.row_number in row_numbers
+            ]
+            
+            if not selected_changes:
+                return {
+                    "started_at": datetime.utcnow().isoformat(),
+                    "completed_at": datetime.utcnow().isoformat(),
+                    "total_rows": 0,
+                    "successful": 0,
+                    "failed": 0,
+                    "skipped": 0,
+                    "message": "Seçilen satırlarda değişiklik bulunamadı",
+                    "results": [],
+                }
+            
+            # Sync selected rows
+            reverse_sync = ReverseSyncService(
+                bitrix_webhook_url=config.webhook_url,
+                access_token=token,
+            )
+            
+            batch_result = await reverse_sync.sync_selected_rows(
+                db=db,
+                config_id=config_id,
+                row_changes=selected_changes,
+            )
+            
+            return batch_result.to_dict()
+            
+        finally:
+            await detector.close()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("sync_selected_rows_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/reverse-sync/sync-row/{config_id}/{row_number}")
+async def sync_single_row_to_bitrix(
+    config_id: int,
+    row_number: int,
+    user_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Sync a single row from Google Sheets to Bitrix24
+    
+    Path params:
+    - config_id: Sync configuration ID
+    - row_number: Row number to sync
+    
+    Query params:
+    - user_id: User ID
+    
+    Response:
+    {
+        "row_number": 2,
+        "entity_id": "123",
+        "success": true,
+        "fields_synced": ["Name", "Email"],
+        "synced_at": "2025-11-29T10:00:00"
+    }
+    """
+    from app.services.change_detector import ChangeDetector
+    from app.services.reverse_sync import ReverseSyncService
+    
+    try:
+        # Get user token
+        stmt = select(UserSheetsToken).where(UserSheetsToken.user_id == user_id)
+        result = await db.execute(stmt)
+        token_record = result.scalar_one_or_none()
+        
+        if not token_record or not token_record.access_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Google Sheets bağlantısı bulunamadı",
+            )
+        
+        # Get config
+        stmt_config = select(SheetSyncConfig).where(SheetSyncConfig.id == config_id)
+        result_config = await db.execute(stmt_config)
+        config = result_config.scalars().first()
+        
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Yapılandırma bulunamadı",
+            )
+        
+        if not config.webhook_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bitrix24 webhook URL tanımlı değil",
+            )
+        
+        # Get valid access token
+        oauth_auth = GoogleSheetsAuth()
+        token = await oauth_auth.get_valid_access_token(db, user_id)
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token yenileme başarısız",
+            )
+        
+        # Get row details
+        detector = ChangeDetector(token)
+        
+        try:
+            detection_result = await detector.detect_changes(db, config_id)
+            
+            # Find the specific row
+            row_change = next(
+                (r for r in detection_result.row_changes if r.row_number == row_number),
+                None
+            )
+            
+            if not row_change:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Bu satırda değişiklik bulunamadı",
+                )
+            
+            if not row_change.entity_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Entity ID bulunamadı",
+                )
+            
+            # Prepare changes
+            changes = {
+                cell.column_name: cell.new_value
+                for cell in row_change.cell_changes
+                if cell.is_editable
+            }
+            
+            if not changes:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Güncellenebilir değişiklik bulunamadı",
+                )
+            
+            # Sync row
+            reverse_sync = ReverseSyncService(
+                bitrix_webhook_url=config.webhook_url,
+                access_token=token,
+            )
+            
+            sync_result = await reverse_sync.sync_single_row(
+                db=db,
+                config_id=config_id,
+                row_number=row_number,
+                changes=changes,
+                entity_id=row_change.entity_id,
+            )
+            
+            return sync_result.to_dict()
+            
+        finally:
+            await detector.close()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("sync_single_row_failed", config_id=config_id, row=row_number, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.get("/reverse-sync/history/{config_id}")
+async def get_reverse_sync_history(
+    config_id: int,
+    user_id: str = Query(...),
+    status_filter: Optional[str] = Query(None, description="Filter by status"),
+    limit: int = Query(50, description="Max results"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get reverse sync history for a configuration
+    
+    Path params:
+    - config_id: Sync configuration ID
+    
+    Query params:
+    - user_id: User ID
+    - status_filter: Optional status filter (pending, syncing, completed, failed)
+    - limit: Max results (default 50)
+    
+    Response:
+    [
+        {
+            "id": 1,
+            "entity_id": 123,
+            "row_number": 2,
+            "status": "completed",
+            "changed_fields": {"Name": "John"},
+            "error": null,
+            "created_at": "2025-11-29T10:00:00",
+            "synced_at": "2025-11-29T10:00:01"
+        }
+    ]
+    """
+    from app.services.reverse_sync import ReverseSyncService
+    
+    try:
+        # Verify user owns this config
+        stmt = select(SheetSyncConfig).where(
+            SheetSyncConfig.id == config_id,
+            SheetSyncConfig.user_id == user_id,
+        )
+        result = await db.execute(stmt)
+        config = result.scalars().first()
+        
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Yapılandırma bulunamadı",
+            )
+        
+        reverse_sync = ReverseSyncService(
+            bitrix_webhook_url=config.webhook_url or "",
+        )
+        
+        history = await reverse_sync.get_sync_history(
+            db=db,
+            config_id=config_id,
+            status_filter=status_filter,
+            limit=limit,
+        )
+        
+        return history
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("get_reverse_sync_history_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/reverse-sync/retry/{config_id}")
+async def retry_failed_syncs(
+    config_id: int,
+    user_id: str = Query(...),
+    log_ids: Optional[List[int]] = Query(None, description="Specific log IDs to retry"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Retry failed sync operations
+    
+    Path params:
+    - config_id: Sync configuration ID
+    
+    Query params:
+    - user_id: User ID
+    - log_ids: Optional specific log IDs to retry
+    
+    Response:
+    {
+        "started_at": "2025-11-29T10:00:00",
+        "completed_at": "2025-11-29T10:00:05",
+        "total_rows": 3,
+        "successful": 2,
+        "failed": 1,
+        "results": [...]
+    }
+    """
+    from app.services.reverse_sync import ReverseSyncService
+    
+    try:
+        # Verify user owns this config
+        stmt = select(SheetSyncConfig).where(
+            SheetSyncConfig.id == config_id,
+            SheetSyncConfig.user_id == user_id,
+        )
+        result = await db.execute(stmt)
+        config = result.scalars().first()
+        
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Yapılandırma bulunamadı",
+            )
+        
+        if not config.webhook_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bitrix24 webhook URL tanımlı değil",
+            )
+        
+        reverse_sync = ReverseSyncService(
+            bitrix_webhook_url=config.webhook_url,
+        )
+        
+        batch_result = await reverse_sync.retry_failed_rows(
+            db=db,
+            config_id=config_id,
+            log_ids=log_ids,
+        )
+        
+        return batch_result.to_dict()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("retry_failed_syncs_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+# ============================================================================
+# CONFLICT MANAGEMENT ENDPOINTS
+# ============================================================================
+
+
+@router.get("/conflicts/detect/{config_id}")
+async def detect_conflicts(
+    config_id: int,
+    user_id: str = Query(..., description="Kullanıcı ID"),
+    row_numbers: Optional[str] = Query(None, description="Virgülle ayrılmış satır numaraları"),
+    check_all: bool = Query(False, description="Tüm satırları kontrol et"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Çakışmaları algıla
+    
+    Bitrix24 ve Google Sheets arasındaki çakışmaları tespit eder.
+    Aynı anda iki yerde değişen alanları bulur.
+    """
+    from app.services.conflict_manager import ConflictManager
+    
+    try:
+        # Verify user owns this config
+        stmt = select(SheetSyncConfig).where(
+            SheetSyncConfig.id == config_id,
+            SheetSyncConfig.user_id == user_id,
+        )
+        result = await db.execute(stmt)
+        config = result.scalars().first()
+        
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Yapılandırma bulunamadı",
+            )
+        
+        # Parse row numbers if provided
+        rows = None
+        if row_numbers:
+            rows = [int(r.strip()) for r in row_numbers.split(",")]
+        
+        # Detect conflicts
+        manager = ConflictManager(db, config)
+        detection_result = await manager.detect_conflicts(
+            row_numbers=rows,
+            check_all=check_all
+        )
+        
+        # Convert to dict
+        return {
+            "config_id": detection_result.config_id,
+            "detected_at": detection_result.detected_at.isoformat(),
+            "total_rows_checked": detection_result.total_rows_checked,
+            "conflicts_found": detection_result.conflicts_found,
+            "has_conflicts": detection_result.has_conflicts,
+            "row_conflicts": [
+                {
+                    "row_number": rc.row_number,
+                    "entity_id": rc.entity_id,
+                    "entity_type": rc.entity_type,
+                    "conflict_count": rc.conflict_count,
+                    "unresolved_count": rc.unresolved_count,
+                    "field_conflicts": [
+                        {
+                            "field_name": fc.field_name,
+                            "column_name": fc.column_name,
+                            "column_index": fc.column_index,
+                            "bitrix_field": fc.bitrix_field,
+                            "bitrix_value": fc.bitrix_value,
+                            "sheet_value": fc.sheet_value,
+                            "conflict_type": fc.conflict_type.value,
+                            "suggested_resolution": fc.suggested_resolution.value,
+                            "resolved": fc.resolved,
+                        }
+                        for fc in rc.field_conflicts
+                    ]
+                }
+                for rc in detection_result.row_conflicts
+            ],
+            "error": detection_result.error
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("detect_conflicts_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/conflicts/resolve/{config_id}")
+async def resolve_conflict(
+    config_id: int,
+    user_id: str = Query(..., description="Kullanıcı ID"),
+    row_number: int = Query(..., description="Satır numarası"),
+    field_name: str = Query(..., description="Alan adı"),
+    resolution: str = Query(..., description="Çözüm stratejisi: use_bitrix, use_sheet, skip"),
+    custom_value: Optional[str] = Query(None, description="Özel değer (merge için)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Tek bir çakışmayı çöz
+    
+    Args:
+        resolution: use_bitrix, use_sheet, merge, skip
+    """
+    from app.services.conflict_manager import ConflictManager, ResolutionStrategy
+    
+    try:
+        # Verify user owns this config
+        stmt = select(SheetSyncConfig).where(
+            SheetSyncConfig.id == config_id,
+            SheetSyncConfig.user_id == user_id,
+        )
+        result = await db.execute(stmt)
+        config = result.scalars().first()
+        
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Yapılandırma bulunamadı",
+            )
+        
+        # Parse resolution strategy
+        try:
+            strategy = ResolutionStrategy(resolution)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Geçersiz çözüm stratejisi: {resolution}. Geçerli değerler: use_bitrix, use_sheet, merge, skip"
+            )
+        
+        # Resolve conflict
+        manager = ConflictManager(db, config)
+        result = await manager.resolve_conflict(
+            row_number=row_number,
+            field_name=field_name,
+            resolution=strategy,
+            custom_value=custom_value
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("resolve_conflict_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.post("/conflicts/resolve-row/{config_id}")
+async def resolve_row_conflicts(
+    config_id: int,
+    user_id: str = Query(..., description="Kullanıcı ID"),
+    row_number: int = Query(..., description="Satır numarası"),
+    resolution: str = Query(..., description="Çözüm stratejisi: use_bitrix, use_sheet"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Bir satırdaki tüm çakışmaları aynı strateji ile çöz
+    """
+    from app.services.conflict_manager import ConflictManager, ResolutionStrategy
+    
+    try:
+        # Verify user owns this config
+        stmt = select(SheetSyncConfig).where(
+            SheetSyncConfig.id == config_id,
+            SheetSyncConfig.user_id == user_id,
+        )
+        result = await db.execute(stmt)
+        config = result.scalars().first()
+        
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Yapılandırma bulunamadı",
+            )
+        
+        # Parse resolution strategy
+        try:
+            strategy = ResolutionStrategy(resolution)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Geçersiz çözüm stratejisi: {resolution}"
+            )
+        
+        # Resolve all conflicts in row
+        manager = ConflictManager(db, config)
+        result = await manager.resolve_row_conflicts(
+            row_number=row_number,
+            resolution=strategy
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("resolve_row_conflicts_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.get("/conflicts/history/{config_id}")
+async def get_conflict_history(
+    config_id: int,
+    user_id: str = Query(..., description="Kullanıcı ID"),
+    limit: int = Query(50, ge=1, le=200, description="Kayıt limiti"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Çakışma geçmişini getir
+    
+    Geçmiş senkronizasyon loglarından çakışma geçmişini döner.
+    """
+    from app.services.conflict_manager import ConflictManager
+    
+    try:
+        # Verify user owns this config
+        stmt = select(SheetSyncConfig).where(
+            SheetSyncConfig.id == config_id,
+            SheetSyncConfig.user_id == user_id,
+        )
+        result = await db.execute(stmt)
+        config = result.scalars().first()
+        
+        if not config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Yapılandırma bulunamadı",
+            )
+        
+        manager = ConflictManager(db, config)
+        history = await manager.get_conflict_history(limit=limit)
+        
+        return {
+            "config_id": config_id,
+            "history": history,
+            "count": len(history)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("get_conflict_history_failed", config_id=config_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )

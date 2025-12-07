@@ -14,55 +14,55 @@ interface FieldMappingDisplayProps {
 
 const BITRIX_FIELDS: Record<string, { value: string; label: string }[]> = {
   contacts: [
-    { value: 'TITLE', label: 'Contact Name' },
-    { value: 'EMAIL', label: 'Email' },
-    { value: 'PHONE', label: 'Phone' },
-    { value: 'STATUS_ID', label: 'Status' },
-    { value: 'SOURCE_ID', label: 'Source' },
-    { value: 'COMMENTS', label: 'Comments' },
+    { value: 'TITLE', label: 'Müşteri Adı' },
+    { value: 'EMAIL', label: 'E-posta' },
+    { value: 'PHONE', label: 'Telefon' },
+    { value: 'STATUS_ID', label: 'Durum' },
+    { value: 'SOURCE_ID', label: 'Kaynak' },
+    { value: 'COMMENTS', label: 'Yorumlar' },
   ],
   deals: [
-    { value: 'TITLE', label: 'Deal Name' },
-    { value: 'STAGE_ID', label: 'Stage' },
-    { value: 'ASSIGNED_BY_ID', label: 'Assigned To' },
-    { value: 'BEGINDATE', label: 'Start Date' },
-    { value: 'CLOSEDATE', label: 'Close Date' },
-    { value: 'OPPORTUNITY', label: 'Amount' },
+    { value: 'TITLE', label: 'Anlaşma Adı' },
+    { value: 'STAGE_ID', label: 'Aşama' },
+    { value: 'ASSIGNED_BY_ID', label: 'Atanan Kişi' },
+    { value: 'BEGINDATE', label: 'Başlangıç Tarihi' },
+    { value: 'CLOSEDATE', label: 'Kapanış Tarihi' },
+    { value: 'OPPORTUNITY', label: 'Tutar' },
   ],
   companies: [
-    { value: 'TITLE', label: 'Company Name' },
-    { value: 'PHONE', label: 'Phone' },
-    { value: 'EMAIL', label: 'Email' },
-    { value: 'WEBSITE', label: 'Website' },
-    { value: 'INDUSTRY', label: 'Industry' },
-    { value: 'COMMENTS', label: 'Comments' },
+    { value: 'TITLE', label: 'Şirket Adı' },
+    { value: 'PHONE', label: 'Telefon' },
+    { value: 'EMAIL', label: 'E-posta' },
+    { value: 'WEBSITE', label: 'Web Sitesi' },
+    { value: 'INDUSTRY', label: 'Sektör' },
+    { value: 'COMMENTS', label: 'Yorumlar' },
   ],
   tasks: [
-    { value: 'TITLE', label: 'Task Name' },
-    { value: 'DESCRIPTION', label: 'Description' },
-    { value: 'PRIORITY', label: 'Priority' },
-    { value: 'DEADLINE', label: 'Deadline' },
-    { value: 'RESPONSIBLE_ID', label: 'Assigned To' },
-    { value: 'STATUS', label: 'Status' },
+    { value: 'TITLE', label: 'Görev Adı' },
+    { value: 'DESCRIPTION', label: 'Açıklama' },
+    { value: 'PRIORITY', label: 'Öncelik' },
+    { value: 'DEADLINE', label: 'Son Tarih' },
+    { value: 'RESPONSIBLE_ID', label: 'Sorumlu' },
+    { value: 'STATUS', label: 'Durum' },
   ],
   leads: [
-    { value: 'TITLE', label: 'Lead Name' },
-    { value: 'NAME', label: 'First Name' },
-    { value: 'LAST_NAME', label: 'Last Name' },
-    { value: 'EMAIL', label: 'Email' },
-    { value: 'PHONE', label: 'Phone' },
-    { value: 'STATUS_ID', label: 'Status' },
-    { value: 'SOURCE_ID', label: 'Source' },
-    { value: 'COMMENTS', label: 'Comments' },
+    { value: 'TITLE', label: 'Potansiyel Müşteri Adı' },
+    { value: 'NAME', label: 'Ad' },
+    { value: 'LAST_NAME', label: 'Soyad' },
+    { value: 'EMAIL', label: 'E-posta' },
+    { value: 'PHONE', label: 'Telefon' },
+    { value: 'STATUS_ID', label: 'Durum' },
+    { value: 'SOURCE_ID', label: 'Kaynak' },
+    { value: 'COMMENTS', label: 'Yorumlar' },
   ],
   activities: [
-    { value: 'SUBJECT', label: 'Subject' },
-    { value: 'DESCRIPTION', label: 'Description' },
-    { value: 'TYPE_ID', label: 'Type' },
-    { value: 'RESPONSIBLE_ID', label: 'Assigned To' },
-    { value: 'START_TIME', label: 'Start Time' },
-    { value: 'END_TIME', label: 'End Time' },
-    { value: 'COMPLETED', label: 'Completed' },
+    { value: 'SUBJECT', label: 'Konu' },
+    { value: 'DESCRIPTION', label: 'Açıklama' },
+    { value: 'TYPE_ID', label: 'Tip' },
+    { value: 'RESPONSIBLE_ID', label: 'Sorumlu' },
+    { value: 'START_TIME', label: 'Başlangıç Zamanı' },
+    { value: 'END_TIME', label: 'Bitiş Zamanı' },
+    { value: 'COMPLETED', label: 'Tamamlandı' },
   ],
 };
 
@@ -95,9 +95,9 @@ export default function FieldMappingDisplay({ config }: FieldMappingDisplayProps
   return (
     <div>
       <div className="mb-6">
-        <h3 className="text-lg font-semibold text-slate-900 mb-2">Field Mappings</h3>
+        <h3 className="text-lg font-semibold text-slate-900 mb-2">Alan Eşleştirmeleri</h3>
         <p className="text-sm text-slate-600">
-          Map your Google Sheets columns to Bitrix24 fields. Green = auto-detected, Blue = manual mapping
+          Google Sheets sütunlarınızı Bitrix24 alanlarına eşleştirin. Yeşil = otomatik algılanan, Mavi = manuel eşleştirme
         </p>
       </div>
 
@@ -107,19 +107,19 @@ export default function FieldMappingDisplay({ config }: FieldMappingDisplayProps
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
               <th className="text-left px-4 py-3 font-semibold text-slate-900 text-sm">
-                Sheet Column
+                E-Tablo Sütunu
               </th>
               <th className="text-left px-4 py-3 font-semibold text-slate-900 text-sm">
-                Data Type
+                Veri Tipi
               </th>
               <th className="text-left px-4 py-3 font-semibold text-slate-900 text-sm">
-                Bitrix24 Field
+                Bitrix24 Alanı
               </th>
               <th className="text-left px-4 py-3 font-semibold text-slate-900 text-sm">
-                Updatable
+                Güncellenebilir
               </th>
               <th className="text-left px-4 py-3 font-semibold text-slate-900 text-sm">
-                Actions
+                İşlemler
               </th>
             </tr>
           </thead>
@@ -130,7 +130,7 @@ export default function FieldMappingDisplay({ config }: FieldMappingDisplayProps
                 <td className="px-4 py-3">
                   <div className="font-medium text-slate-900">{mapping.sheet_column_name}</div>
                   <div className="text-xs text-slate-600">
-                    Column {mapping.sheet_column_index + 1}
+                    Sütun {mapping.sheet_column_index + 1}
                   </div>
                 </td>
 
@@ -167,7 +167,7 @@ export default function FieldMappingDisplay({ config }: FieldMappingDisplayProps
                       }
                       className="w-full px-3 py-1 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="">-- Select Field --</option>
+                      <option value="">-- Alan Seçin --</option>
                       {availableFields.map((field) => (
                         <option key={field.value} value={field.value}>
                           {field.label}
@@ -211,7 +211,7 @@ export default function FieldMappingDisplay({ config }: FieldMappingDisplayProps
                           : 'bg-slate-100 text-slate-800'
                       }`}
                     >
-                      {mapping.is_updatable ? '✓ Yes' : '✗ No'}
+                      {mapping.is_updatable ? '✓ Evet' : '✗ Hayır'}
                     </span>
                   )}
                 </td>
@@ -225,7 +225,7 @@ export default function FieldMappingDisplay({ config }: FieldMappingDisplayProps
                         disabled={isLoading}
                         className="px-3 py-1 bg-green-600 hover:bg-green-700 disabled:bg-slate-400 text-white text-sm rounded-lg font-medium transition"
                       >
-                        Save
+                        Kaydet
                       </button>
                       <button
                         onClick={() => {
@@ -234,7 +234,7 @@ export default function FieldMappingDisplay({ config }: FieldMappingDisplayProps
                         }}
                         className="px-3 py-1 bg-slate-200 hover:bg-slate-300 text-slate-900 text-sm rounded-lg font-medium transition"
                       >
-                        Cancel
+                        İptal
                       </button>
                     </div>
                   ) : (
@@ -244,7 +244,7 @@ export default function FieldMappingDisplay({ config }: FieldMappingDisplayProps
                       }
                       className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-800 text-sm rounded-lg font-medium transition"
                     >
-                      Edit
+                      Düzenle
                     </button>
                   )}
                 </td>
@@ -270,21 +270,21 @@ export default function FieldMappingDisplay({ config }: FieldMappingDisplayProps
               d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
             />
           </svg>
-          <p className="text-slate-600 font-medium">No field mappings found</p>
+          <p className="text-slate-600 font-medium">Alan eşleştirmesi bulunamadı</p>
           <p className="text-sm text-slate-600 mt-1">
-            Check that your sheet has headers in the first row
+            E-Tablonuzun ilk satırında başlıklar olduğundan emin olun
           </p>
         </div>
       )}
 
       {/* Info Box */}
       <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-        <h4 className="font-semibold text-blue-900 mb-2 text-sm">💡 Tips</h4>
+        <h4 className="font-semibold text-blue-900 mb-2 text-sm">💡 İpuçları</h4>
         <ul className="text-sm text-blue-800 space-y-1">
-          <li>✓ Green badges show auto-detected fields</li>
-          <li>✓ Click "Edit" to correct any mappings</li>
-          <li>✓ Only fields marked as "Updatable" will sync changes to Bitrix24</li>
-          <li>✓ Disable updates for read-only fields (like ID numbers)</li>
+          <li>✓ Yeşil rozetler otomatik algılanan alanları gösterir</li>
+          <li>✓ Eşleştirmeleri düzeltmek için "Düzenle"ye tıklayın</li>
+          <li>✓ Sadece "Güncellenebilir" olarak işaretlenen alanlar Bitrix24'e senkronize edilir</li>
+          <li>✓ Salt okunur alanlar için güncellemeleri devre dışı bırakın (ID numaraları gibi)</li>
         </ul>
       </div>
     </div>
