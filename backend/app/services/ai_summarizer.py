@@ -1062,17 +1062,97 @@ class AISummarizer:
             data = response.json()
             return data["choices"][0]["message"]["content"]
     
+    async def _call_openrouter_with_fallback(self, prompt: str) -> str:
+        """
+        Call OpenRouter API with free models fallback chain
+        Tries free models in order of reliability and speed
+        """
+        free_models = [
+            "meta-llama/llama-3.1-8b-instruct:free",     # Meta Llama 3.1 8B (free)
+            "meta-llama/llama-2-70b-chat:free",          # Meta Llama 2 70B (free)
+            "mistralai/mistral-7b-instruct:free",        # Mistral 7B (free)
+            "google/flan-t5-xl:free",                    # Google FLAN-T5 (free)
+            "openchat/openchat-7b:free",                 # OpenChat (free)
+        ]
+        
+        api_key = self.api_key or os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise Exception("OpenRouter API key not configured for fallback")
+        
+        async with httpx.AsyncClient() as client:
+            last_error = None
+            
+            for model in free_models:
+                try:
+                    logger.info(
+                        "trying_free_openrouter_model",
+                        model=model
+                    )
+                    
+                    response = await client.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": os.getenv("OPENROUTER_REFERER", "https://bitsheet24.local"),
+                            "X-Title": "BitSheet24 AI Summary"
+                        },
+                        json={
+                            "model": model,
+                            "messages": [
+                                {
+                                    "role": "system",
+                                    "content": "Sen Japon Konutları gayrimenkul şirketinin patronu/CEO'susun. Satış ekibinin performansını değerlendiren, müşteri süreçlerini analiz eden, personelin yaptığı işleri inceleyen deneyimli bir gayrimenkul yöneticisisin. Türkçe Markdown formatında detaylı ve kritik raporlar hazırlarsın. Aşama ID'leri yerine aşama adlarını kullanırsın."
+                                },
+                                {"role": "user", "content": prompt}
+                            ],
+                            "max_tokens": 4000,
+                            "temperature": 0.7
+                        },
+                        timeout=self.timeout
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        logger.info(
+                            "free_openrouter_model_success",
+                            model=model
+                        )
+                        return data["choices"][0]["message"]["content"]
+                    else:
+                        last_error = f"Status {response.status_code}: {response.text}"
+                        logger.warning(
+                            "free_openrouter_model_failed",
+                            model=model,
+                            status_code=response.status_code,
+                            error=response.text[:200]
+                        )
+                        continue
+                
+                except Exception as e:
+                    last_error = str(e)
+                    logger.warning(
+                        "free_openrouter_model_error",
+                        model=model,
+                        error=str(e)
+                    )
+                    continue
+            
+            # All models failed
+            raise Exception(f"Tüm free OpenRouter modelleri başarısız oldu. Son hata: {last_error}")
+    
     async def generate_summary(self, customer_data: Dict[str, Any]) -> str:
         """
-        Generate AI summary from customer data
+        Generate AI summary from customer data with fallback to free OpenRouter models
         """
         prompt = self._build_prompt(customer_data)
+        deal_id = customer_data.get("deal", {}).get("id")
         
         logger.info(
             "generating_ai_summary",
             provider=self.provider,
             model=self.model,
-            deal_id=customer_data.get("deal", {}).get("id")
+            deal_id=deal_id
         )
         
         try:
@@ -1092,18 +1172,45 @@ class AISummarizer:
             logger.info(
                 "ai_summary_generated",
                 provider=self.provider,
+                model=self.model,
                 summary_length=len(summary)
             )
             
             return summary
             
         except Exception as e:
-            logger.error(
-                "ai_summary_failed",
+            logger.warning(
+                "ai_summary_failed_primary_provider",
                 provider=self.provider,
-                error=str(e)
+                error=str(e),
+                deal_id=deal_id
             )
-            raise
+            
+            # Fallback: Try free OpenRouter models
+            logger.info(
+                "attempting_openrouter_fallback",
+                deal_id=deal_id
+            )
+            
+            try:
+                summary = await self._call_openrouter_with_fallback(prompt)
+                logger.info(
+                    "ai_summary_generated_via_fallback",
+                    primary_provider=self.provider,
+                    fallback_provider="openrouter_free",
+                    summary_length=len(summary),
+                    deal_id=deal_id
+                )
+                return summary
+            except Exception as fallback_error:
+                logger.error(
+                    "ai_summary_all_providers_failed",
+                    primary_provider=self.provider,
+                    primary_error=str(e),
+                    fallback_error=str(fallback_error),
+                    deal_id=deal_id
+                )
+                raise Exception(f"Tüm AI sağlayıcılar başarısız oldu. Ana hata: {str(e)}, Fallback hata: {str(fallback_error)}")
 
 
 class BitrixSummaryWriter:
