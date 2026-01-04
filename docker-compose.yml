@@ -1,7 +1,6 @@
 # BitSheet24 - Docker Compose Configuration
 # Production deployment for etablo.japonkonutlari.com
-
-version: '3.8'
+# Reorganized structure: services/, config/, data/, docs/, scripts/
 
 services:
   # ===========================================
@@ -17,7 +16,7 @@ services:
       POSTGRES_DB: ${DB_NAME:-bitsheet_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./sql:/docker-entrypoint-initdb.d:ro
+      - ./data/sql:/docker-entrypoint-initdb.d:ro
     networks:
       - bitsheet-network
     healthcheck:
@@ -30,7 +29,7 @@ services:
   # Redis (for caching and Celery)
   # ===========================================
   redis:
-    image: redis:7-alpine
+    image: redis:7.4-alpine
     container_name: bitsheet24-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
@@ -49,7 +48,7 @@ services:
   # ===========================================
   backend:
     build:
-      context: ./backend
+      context: ./services/backend
       dockerfile: Dockerfile
     container_name: bitsheet24-backend
     restart: unless-stopped
@@ -70,8 +69,8 @@ services:
       - DEFAULT_AI_PROVIDER=${DEFAULT_AI_PROVIDER:-openrouter}
       - DEFAULT_AI_MODEL=${DEFAULT_AI_MODEL:-x-ai/grok-3-fast}
     volumes:
-      - ./logs:/app/logs
-      - ./google_credentials.json:/app/google_credentials.json:ro
+      - ./data/logs:/app/logs
+      - ./config/google_credentials.json:/app/google_credentials.json:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,7 +79,7 @@ services:
     networks:
       - bitsheet-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/docs')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -90,7 +89,7 @@ services:
   # ===========================================
   frontend:
     build:
-      context: ./frontend
+      context: ./services/frontend
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://etablo.japonkonutlari.com/api}
@@ -127,9 +126,9 @@ services:
       - "8082:80"
       - "8444:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-      - ./nginx/certbot:/var/www/certbot:ro
+      - ./services/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./services/nginx/ssl:/etc/nginx/ssl:ro
+      - ./services/nginx/certbot:/var/www/certbot:ro
     depends_on:
       - frontend
       - backend
@@ -141,8 +140,8 @@ services:
   # ===========================================
   bitrix-sync:
     build:
-      context: .
-      dockerfile: Dockerfile.sync
+      context: ./services/sync
+      dockerfile: Dockerfile
     container_name: bitsheet24-sync
     restart: unless-stopped
     environment:
@@ -153,7 +152,8 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-bitsheet123}
       - BITRIX_WEBHOOK_URL=${BITRIX_WEBHOOK_URL}
     volumes:
-      - ./logs:/app/logs
+      - ./data/logs:/app/logs
+      - ./config/daemon.conf:/app/daemon.conf:ro
     depends_on:
       postgres:
         condition: service_healthy
